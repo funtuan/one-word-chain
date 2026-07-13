@@ -14,26 +14,33 @@ export async function judge(
   ai: Ai,
   sentence: string,
   lastChar: string,
+  lastIndex: number,
 ): Promise<Judgement> {
   const instructions = [
-    "你是一個嚴謹的中文單字接龍裁判。",
+    "你是一個嚴謹的中文一字接龍裁判。",
     "玩家輪流在句子中插入單一中文字，另一方可質疑句子不合理。",
     "請針對「當前整句話」以及「最後被插入的那個字」做兩項評分：",
     "A = 這句話目前的內容是否合理，範圍 -3 到 3 的整數（-3 非常不合理、0 普通、3 非常合理）。",
     "評 A 要同時看兩個層面：(1) 語法是否通順；(2) 含義是否合理、符合常理邏輯。就算語法通順，若字詞搭配後的意思荒謬、矛盾或不符常識（例如「太陽在海裡游泳」），也要判為不合理、給低分。",
     "重要：句子是玩家一次一個字慢慢接出來的，本來就可能還沒接完。請「不要」因為主詞、受詞或語法不完整而扣分，只需判斷現有的字彼此搭配起來，語法與含義是否都合理、說得通。",
     "B = 最後插入的那個字在整句話中是否只是無意義的語助詞（例如 的、了、啊、呢、嗎、吧、喔），範圍 0 到 3 的整數（0 完全不是語助詞、3 完全是無意義語助詞）。",
+    "整句話中，最後插入的那個字會被【】包住標示位置。【】本身不是句子內容，判斷語法與含義時請忽略這對符號。",
     '只回傳 JSON，格式為 {"A": <整數>, "B": <整數>, "reason": "<20字內中文理由>"}，不要有其他文字。',
   ].join("\n");
 
-  const input = `整句話：「${sentence}」\n最後插入的字：「${lastChar}」`;
+  const chars = Array.from(sentence);
+  const markedSentence = chars
+    .map((ch, i) => (i === lastIndex ? `【${ch}】` : ch))
+    .join("");
+
+  const input = `整句話：「${markedSentence}」\n最後插入的字：「${lastChar}」`;
 
   let text = "";
   try {
     const res: any = await ai.run(MODEL as any, {
       instructions,
       input,
-      max_tokens: 1500,
+      max_tokens: 5000,
       temperature: 0.2,
     } as any);
     text = extractText(res);

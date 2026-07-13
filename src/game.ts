@@ -227,8 +227,14 @@ export class Game {
     this.broadcast({ type: "judging", challenger });
 
     const lastChar = s.lastMove!.char;
+    const lastIndex = s.lastMove!.index;
     const sentence = s.sentence.join("");
-    const { A, B, reason } = await judge(this.env.AI, sentence, lastChar);
+    const { A, B, reason } = await judge(
+      this.env.AI,
+      sentence,
+      lastChar,
+      lastIndex,
+    );
 
     const delta = A - B;
     let awardedTo: Role | null = null;
