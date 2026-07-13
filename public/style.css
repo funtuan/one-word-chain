@@ -143,6 +143,32 @@ button:disabled {
   -webkit-overflow-scrolling: touch;
   padding: 4px 2px 12px;
 }
+.help-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+}
+.help-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--panel-2);
+  border-radius: 14px;
+  margin-bottom: 8px;
+  font-size: 16px;
+  line-height: 1.4;
+}
+.help-list .hi {
+  font-size: 22px;
+  flex: 0 0 26px;
+  text-align: center;
+}
+.help-list b {
+  color: var(--accent);
+}
+
 .help-block {
   background: var(--panel);
   border: 1px solid var(--panel-2);
@@ -181,6 +207,30 @@ button:disabled {
 .pill.danger {
   background: linear-gradient(135deg, var(--danger), #ff9057);
 }
+.criteria {
+  margin: 4px 0 12px;
+}
+.crit {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--panel-2);
+}
+.crit:last-child {
+  border-bottom: none;
+}
+.crit-name {
+  font-weight: 700;
+  font-size: 15px;
+  margin-bottom: 3px;
+}
+.crit-desc {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.crit-desc b {
+  color: var(--text);
+}
+
 .verdict-cards {
   display: flex;
   gap: 8px;

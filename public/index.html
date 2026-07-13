@@ -26,47 +26,44 @@
           <h2>遊戲說明</h2>
         </header>
         <div class="help-body">
-          <div class="help-block">
-            <h3>🎯 目標</h3>
-            <p>兩人對戰，先拿到 <b>5 分</b> 的人獲勝。對手中途離線則直接結束。</p>
-          </div>
+          <ul class="help-list">
+            <li><span class="hi">🎯</span><span>先得 <b>5 分</b> 獲勝</span></li>
+            <li><span class="hi">✍️</span><span>輪流插 <b>一個字</b> 到句子任意位置</span></li>
+            <li><span class="hi">⏱️</span><span>每回合限時 <b>20 秒</b></span></li>
+            <li>
+              <span class="hi">🤔</span>
+              <span>句子被接得不合理？按 <span class="pill danger">質疑</span></span>
+            </li>
+          </ul>
 
           <div class="help-block">
-            <h3>✍️ 怎麼玩</h3>
-            <ol>
-              <li>系統給一個 <b>種子詞</b> 當開頭。</li>
-              <li>輪到你時，把 <b>一個中文字</b> 插進句子的任意位置。</li>
-              <li>每回合限時 <b>20 秒</b>，時間到會自動幫你質疑對方。</li>
-              <li>逐字慢慢接，句子還沒接完、不完整都是正常的。</li>
-            </ol>
-          </div>
+            <h3>⚖️ 質疑後，AI 裁判看兩件事</h3>
+            <div class="criteria">
+              <div class="crit">
+                <div class="crit-name">句子合理嗎？</div>
+                <div class="crit-desc">
+                  同時看 <b>語法通順</b> 與 <b>含義合理</b>。語法對但意思荒謬（例：「太陽在海裡游泳」）也算不合理。
+                </div>
+              </div>
+              <div class="crit">
+                <div class="crit-name">那個字是廢字嗎？</div>
+                <div class="crit-desc">
+                  是不是硬塞的無意義 <b>語助詞</b>（的、了、啊、嗎…）。是的話會被扣分。
+                </div>
+              </div>
+            </div>
 
-          <div class="help-block">
-            <h3>🤔 質疑</h3>
-            <p>
-              覺得對方上一個字讓句子變得不合理，或只是硬塞的廢字，就按
-              <span class="pill danger">質疑</span>，交給 AI 裁判評分。
-            </p>
-          </div>
-
-          <div class="help-block">
-            <h3>⚖️ AI 裁判怎麼算分</h3>
-            <p>質疑後，AI 會看兩件事：</p>
-            <ul>
-              <li><b>句子合理度</b>：語法通不通、含義合不合常理。</li>
-              <li><b>那個字</b>：是不是無意義的語助詞（的、了、啊、嗎…）。</li>
-            </ul>
             <div class="verdict-cards">
               <div class="vc win">
                 <div class="vc-title">✅ 質疑成立</div>
-                <div class="vc-desc">句子不合理或那字是廢字 → <b>你得分</b></div>
+                <div class="vc-desc">句子不合理／是廢字 → <b>你得分</b></div>
               </div>
               <div class="vc lose">
                 <div class="vc-title">❌ 質疑不成立</div>
-                <div class="vc-desc">句子其實很合理 → <b>對方得分</b></div>
+                <div class="vc-desc">句子其實合理 → <b>對方得分</b></div>
               </div>
             </div>
-            <p class="help-note">越誇張的不合理／越明顯的廢字，分差越大，得分越多。</p>
+            <p class="help-note">越不合理、越明顯的廢字，得分越多。</p>
           </div>
         </div>
         <button id="btn-help-play" class="primary">開始配對</button>
