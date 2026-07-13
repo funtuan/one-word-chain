@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>單字接龍</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- 開始 / 配對 -->
+      <section id="screen-start" class="screen active">
+        <h1>單字接龍</h1>
+        <p class="tagline">輪流插字，覺得不合理就質疑！先得 5 分獲勝。</p>
+        <button id="btn-play" class="primary">開始配對</button>
+        <button id="btn-help" class="ghost">遊戲說明</button>
+      </section>
+
+      <!-- 遊戲說明 -->
+      <section id="screen-help" class="screen">
+        <header class="help-header">
+          <button id="btn-help-back" class="back">‹ 返回</button>
+          <h2>遊戲說明</h2>
+        </header>
+        <div class="help-body">
+          <div class="help-block">
+            <h3>🎯 目標</h3>
+            <p>兩人對戰，先拿到 <b>5 分</b> 的人獲勝。對手中途離線則直接結束。</p>
+          </div>
+
+          <div class="help-block">
+            <h3>✍️ 怎麼玩</h3>
+            <ol>
+              <li>系統給一個 <b>種子詞</b> 當開頭。</li>
+              <li>輪到你時，把 <b>一個中文字</b> 插進句子的任意位置。</li>
+              <li>每回合限時 <b>20 秒</b>，時間到會自動幫你質疑對方。</li>
+              <li>逐字慢慢接，句子還沒接完、不完整都是正常的。</li>
+            </ol>
+          </div>
+
+          <div class="help-block">
+            <h3>🤔 質疑</h3>
+            <p>
+              覺得對方上一個字讓句子變得不合理，或只是硬塞的廢字，就按
+              <span class="pill danger">質疑</span>，交給 AI 裁判評分。
+            </p>
+          </div>
+
+          <div class="help-block">
+            <h3>⚖️ AI 裁判怎麼算分</h3>
+            <p>質疑後，AI 會看兩件事：</p>
+            <ul>
+              <li><b>句子合理度</b>：語法通不通、含義合不合常理。</li>
+              <li><b>那個字</b>：是不是無意義的語助詞（的、了、啊、嗎…）。</li>
+            </ul>
+            <div class="verdict-cards">
+              <div class="vc win">
+                <div class="vc-title">✅ 質疑成立</div>
+                <div class="vc-desc">句子不合理或那字是廢字 → <b>你得分</b></div>
+              </div>
+              <div class="vc lose">
+                <div class="vc-title">❌ 質疑不成立</div>
+                <div class="vc-desc">句子其實很合理 → <b>對方得分</b></div>
+              </div>
+            </div>
+            <p class="help-note">越誇張的不合理／越明顯的廢字，分差越大，得分越多。</p>
+          </div>
+        </div>
+        <button id="btn-help-play" class="primary">開始配對</button>
+      </section>
+
+      <section id="screen-matching" class="screen">
+        <div class="spinner"></div>
+        <p id="matching-text">配對中…</p>
+      </section>
+
+      <!-- 對戰 -->
+      <section id="screen-game" class="screen">
+        <header class="scoreboard">
+          <div class="score me">
+            <span class="label">我</span>
+            <span id="score-me" class="num">0</span>
+          </div>
+          <div class="vs">
+            <span id="turn-badge" class="badge">—</span>
+          </div>
+          <div class="score opp">
+            <span class="label">對手</span>
+            <span id="score-opp" class="num">0</span>
+          </div>
+        </header>
+
+        <div class="timer-wrap">
+          <div id="timer-bar" class="timer-bar"></div>
+          <span id="timer-text" class="timer-text">20</span>
+        </div>
+
+        <div id="sentence" class="sentence"></div>
+
+        <div id="hint" class="hint"></div>
+
+        <div class="controls">
+          <input
+            id="char-input"
+            class="char-input"
+            type="text"
+            inputmode="text"
+            maxlength="1"
+            autocomplete="off"
+            placeholder="字"
+          />
+          <button id="btn-submit" class="primary" disabled>插入</button>
+          <button id="btn-challenge" class="challenge" disabled>質疑</button>
+        </div>
+      </section>
+
+      <!-- 結算彈窗 -->
+      <div id="overlay" class="overlay">
+        <div class="card">
+          <h2 id="ov-title"></h2>
+          <div id="ov-body"></div>
+          <button id="ov-btn" class="primary"></button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
