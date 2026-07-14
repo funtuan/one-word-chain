@@ -78,6 +78,9 @@ const state = {
   status: "idle",
   timerRAF: null,
   resultTimer: null,
+  gameId: null, // 目前對局 id（供斷線重連回同一場）
+  reconnectTries: 0, // 斷線後已重連次數
+  keepalive: null, // 保活計時器
 };
 
 const MODE_DESC = {
@@ -301,6 +304,30 @@ function renderLeaderboard(players) {
 }
 
 // ---------- 配對 + 連線 ----------
+// 記住目前這一場，讓斷線／重新整理後能連回同一個對局（而非配到全新的房）。
+const ACTIVE_KEY = "owc:activeGame";
+const RECONNECT_MAX = 4; // 斷線後最多重連次數
+const RECONNECT_DELAY = 1000; // 每次重連間隔（ms）；也讓後端先把「斷線判負」結算完
+
+function rememberGame(gameId, mode) {
+  try {
+    sessionStorage.setItem(ACTIVE_KEY, JSON.stringify({ gameId, mode }));
+  } catch {}
+}
+function forgetGame() {
+  try {
+    sessionStorage.removeItem(ACTIVE_KEY);
+  } catch {}
+}
+function loadActiveGame() {
+  try {
+    const raw = sessionStorage.getItem(ACTIVE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function play() {
   if (!me.name) {
     openNameScreen(false);
@@ -319,6 +346,8 @@ async function play() {
 }
 
 function connect(gameId) {
+  state.gameId = gameId;
+  rememberGame(gameId, state.mode);
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const q = new URLSearchParams({
     mode: state.mode,
@@ -330,6 +359,9 @@ function connect(gameId) {
   );
   state.ws = ws;
 
+  ws.onopen = () => {
+    state.reconnectTries = 0;
+  };
   ws.onmessage = (ev) => {
     let msg;
     try {
@@ -340,14 +372,24 @@ function connect(gameId) {
     handle(msg);
   };
   ws.onclose = () => {
-    if (state.status !== "over") {
+    clearInterval(state.keepalive);
+    if (state.status === "over") return;
+    // 非正常中斷：本設計「斷線即判負」，因此嘗試連回同一場，
+    // 取回自己敗北的結果並顯示（而非停在「連線中斷」）。
+    if ((state.reconnectTries || 0) < RECONNECT_MAX && state.gameId) {
+      state.reconnectTries = (state.reconnectTries || 0) + 1;
+      show("matching");
+      el.matchingText.textContent = "連線中斷，重新連線中…";
+      setTimeout(() => connect(state.gameId), RECONNECT_DELAY);
+    } else {
       el.matchingText.textContent = "連線中斷";
     }
   };
   ws.onerror = () => {};
 
   // 保活
-  setInterval(() => {
+  clearInterval(state.keepalive);
+  state.keepalive = setInterval(() => {
     if (ws.readyState === 1) ws.send(JSON.stringify({ type: "ping" }));
   }, 15000);
 }
@@ -644,6 +686,12 @@ function showSettled(msg) {
 
 function showGameover(msg) {
   state.status = "over";
+  forgetGame(); // 對局已結束，清掉重連記錄
+  // 斷線者重連取回結果時，沒收過 start，需由 gameover 補上自己的身分與名稱
+  if (msg.you) state.you = msg.you;
+  if (msg.names) state.names = msg.names;
+  // 結算彈窗位於遊戲畫面內，需確保遊戲畫面為 active 才顯示得出來（重連時可能停在配對畫面）
+  show("game");
   cancelAnimationFrame(state.timerRAF);
   clearInterval(state.resultTimer);
   el.ovBtn.style.display = "";
@@ -877,12 +925,21 @@ el.btnLbBack.addEventListener("click", () => show("start"));
 // ---------- 啟動 ----------
 function boot() {
   loadIdentity();
-  if (me.name) {
-    renderPlayerBar();
-    show("start");
-    register(); // 更新名稱並取回最新戰績
-  } else {
+  if (!me.name) {
     openNameScreen(false);
+    return;
+  }
+  renderPlayerBar();
+  register(); // 更新名稱並取回最新戰績
+  // 重新整理／斷線後若仍有進行中的對局，連回同一場（斷線判負者會在此取回結果）
+  const active = loadActiveGame();
+  if (active && active.gameId) {
+    state.mode = active.mode || state.mode;
+    show("matching");
+    el.matchingText.textContent = "重新連線中…";
+    connect(active.gameId);
+  } else {
+    show("start");
   }
 }
 boot();

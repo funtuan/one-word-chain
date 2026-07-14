@@ -44,6 +44,8 @@ interface GameState {
   ratings: { p1: number; p2: number }; // 雙方 ELO 積分（開局當下，整局不變）
   games: { p1: number; p2: number }; // 雙方已玩場數（開局當下，供動態 K / placement）
   recorded?: boolean; // 是否已寫入戰績（避免重複寫入）
+  finalWinner?: Role | null; // 遊戲結束後的勝方（供斷線者重連時補送 gameover）
+  finalReason?: "score" | "opponent_left"; // 結束原因（同上）
 }
 
 interface Env {
@@ -68,18 +70,32 @@ export class Game {
     }
 
     const existing = this.ctx.getWebSockets();
+    const url = new URL(request.url);
+    const reqPlayerId = (url.searchParams.get("playerId") ?? "").slice(0, 64);
+
+    // 遊戲已結束（含斷線判負）：不重新開局，改為補送結果給重連的玩家。
+    // 斷線算輸的一方重連回來時，這裡讓他也能看到自己敗北的對戰結果。
+    const s = await this.ensureState();
+    if (s && s.status === "over") {
+      const you = this.resolveRole(reqPlayerId, s);
+      const pair = new WebSocketPair();
+      this.ctx.acceptWebSocket(pair[1], you ? [you] : []);
+      if (you) pair[1].serializeAttachment({ role: you });
+      this.sendTo(pair[1], this.buildGameover(you ?? undefined));
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
+
     if (existing.length >= 2) {
       return new Response("game full", { status: 409 });
     }
 
     const role: Role = existing.length === 0 ? "p1" : "p2";
-    const url = new URL(request.url);
     const mode: GameMode =
       url.searchParams.get("mode") === "devil" ? "devil" : "normal";
 
     // 玩家身分（無需登入；沿用 client 於 localStorage 產生的 UUID 與名稱）
     const identity: PlayerIdentity = {
-      id: (url.searchParams.get("playerId") ?? "").slice(0, 64),
+      id: reqPlayerId,
       name:
         (url.searchParams.get("name") ?? "").trim().slice(0, 20) ||
         (role === "p1" ? "玩家 1" : "玩家 2"),
@@ -97,12 +113,17 @@ export class Game {
     this.ctx.acceptWebSocket(server, [role]);
     server.serializeAttachment({ role });
 
-    // 第二位玩家加入 -> 開局（模式以第一位玩家（房主）為準）
-    if (existing.length === 1) {
+    // 第二位玩家加入且尚未開過局 -> 開局（模式以第一位玩家（房主）為準）。
+    // 已有對局狀態時不重新開局，避免斷線重連的時序把進行中的對局重置。
+    if (existing.length === 1 && !s) {
       await this.startGame();
-    } else {
+    } else if (!s) {
       // 第一位玩家：記住此房的模式
       await this.ctx.storage.put("mode", mode);
+      this.sendTo(server, { type: "waiting" });
+    } else {
+      // 對局進行中卻又有連線進來（少見的重連時序）：不重開局。
+      // 依「斷線判負」設計，既有的 close 結算後，broadcast 的 gameover 也會送達此連線。
       this.sendTo(server, { type: "waiting" });
     }
 
@@ -142,15 +163,11 @@ export class Game {
     const leaver = this.roleOf(ws);
     const winner: Role | null = leaver === "p1" ? "p2" : leaver === "p2" ? "p1" : null;
     s.status = "over";
+    s.finalWinner = winner;
+    s.finalReason = "opponent_left";
     await this.save();
     await this.ctx.storage.deleteAlarm();
-    this.broadcast({
-      type: "gameover",
-      winner,
-      scores: s.scores,
-      reason: "opponent_left",
-      elo: this.computeElo(winner),
-    });
+    this.broadcast(this.buildGameover());
     await this.recordResult(winner, "opponent_left");
   }
 
@@ -167,14 +184,10 @@ export class Game {
     if (s.status === "result") {
       if (s.pendingWinner) {
         s.status = "over";
+        s.finalWinner = s.pendingWinner;
+        s.finalReason = "score";
         await this.save();
-        this.broadcast({
-          type: "gameover",
-          winner: s.pendingWinner,
-          scores: s.scores,
-          reason: "score",
-          elo: this.computeElo(s.pendingWinner),
-        });
+        this.broadcast(this.buildGameover());
         await this.recordResult(s.pendingWinner, "score");
       } else {
         await this.beginRound(s.pendingFirstMover ?? "p1");
@@ -397,6 +410,36 @@ export class Game {
     }
     const o = eloOutcome(e2, e1);
     return { p1: o.loser, p2: o.winner };
+  }
+
+  // 依 playerId 判斷重連者原本是哪一方；找不到時退回目前沒有連線的那一方（通常即斷線者）。
+  private resolveRole(playerId: string, s: GameState): Role | null {
+    if (playerId) {
+      if (s.players?.p1?.id === playerId) return "p1";
+      if (s.players?.p2?.id === playerId) return "p2";
+    }
+    if (!this.socketOf("p1")) return "p1";
+    if (!this.socketOf("p2")) return "p2";
+    return null;
+  }
+
+  // 依已持久化的結果組出 gameover 訊息。
+  // you 有值時（斷線者重連補送）會附帶自己的身分與名稱，讓沒收過 start 的端也能正確顯示。
+  private buildGameover(you?: Role): ServerMessage {
+    const s = this.state!;
+    const winner = s.finalWinner ?? null;
+    const msg: ServerMessage = {
+      type: "gameover",
+      winner,
+      scores: s.scores,
+      reason: s.finalReason ?? "score",
+      elo: this.computeElo(winner),
+    };
+    if (you) {
+      msg.you = you;
+      msg.names = this.names();
+    }
+    return msg;
   }
 
   // 遊戲結束時寫入戰績並更新 ELO；只寫一次，D1 失敗不影響遊戲流程

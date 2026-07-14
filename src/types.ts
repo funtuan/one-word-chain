@@ -116,5 +116,8 @@ export type ServerMessage =
         p1: { before: number; after: number; delta: number };
         p2: { before: number; after: number; delta: number };
       } | null;
+      // 以下僅在斷線者重連、補送結果時附帶（重連端沒收過 start，需要這些才能正確顯示）
+      you?: Role; // 收訊端自己的身分
+      names?: { p1: string; p2: string }; // 雙方顯示名稱
     }
   | { type: "error"; message: string };
