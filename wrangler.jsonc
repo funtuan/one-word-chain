@@ -17,6 +17,13 @@
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["Lobby", "Game"] }
   ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "one-word-chain",
+      "database_id": "ab54ddde-bcd3-4d3e-8d07-5952d918dd1b"
+    }
+  ],
   "ai": {
     "binding": "AI"
   },

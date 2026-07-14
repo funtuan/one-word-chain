@@ -324,6 +324,249 @@ button:disabled {
   margin-top: 10px !important;
 }
 
+/* 命名頁 */
+#screen-name {
+  align-items: center;
+  justify-content: center;
+}
+.name-box {
+  width: 100%;
+  max-width: 340px;
+  background: var(--panel);
+  border: 1px solid var(--panel-2);
+  border-radius: 20px;
+  padding: 24px;
+  text-align: center;
+}
+.name-box h2 {
+  margin: 0 0 10px;
+  font-size: 22px;
+}
+.name-hint {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 0 0 16px;
+}
+.name-hint b {
+  color: var(--danger);
+}
+.name-input {
+  width: 100%;
+  height: 52px;
+  text-align: center;
+  font-size: 18px;
+  border-radius: 14px;
+  border: 2px solid var(--panel-2);
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  margin-bottom: 14px;
+}
+.name-input:focus {
+  border-color: var(--accent);
+}
+.name-box .primary {
+  width: 100%;
+}
+.name-box .ghost {
+  width: 100%;
+  margin-top: 8px;
+}
+
+/* 帳號代碼（轉移帳號） */
+.acct-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--panel-2);
+  text-align: left;
+}
+.acct-block + .acct-block {
+  margin-top: 14px;
+}
+.acct-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.acct-code-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.acct-code {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--panel-2);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  color: var(--text);
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+}
+button.sm {
+  padding: 8px 14px;
+  border-radius: 10px;
+  flex: 0 0 auto;
+  margin-top: 0 !important;
+  width: auto !important;
+}
+.acct-warn {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin: 8px 0 0;
+}
+.acct-warn.danger {
+  color: var(--danger);
+}
+.acct-warn b {
+  font-weight: 800;
+}
+.link-btn {
+  background: transparent;
+  color: var(--accent);
+  padding: 0;
+  font-size: 14px;
+  font-weight: 600;
+  width: auto !important;
+  margin: 0 !important;
+}
+#acct-import {
+  margin-top: 10px;
+}
+#acct-import .name-input {
+  margin-bottom: 0;
+}
+.danger-btn {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid rgba(255, 107, 107, 0.4);
+}
+.danger-btn:active {
+  background: rgba(255, 107, 107, 0.12);
+}
+
+/* 開始頁：玩家資訊列 */
+.player-bar {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--panel-2);
+  border-radius: 999px;
+  padding: 8px 14px;
+  color: var(--text);
+  font-weight: 700;
+  max-width: calc(100% - 24px);
+  overflow: hidden;
+}
+.player-bar .pb-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.player-bar .pb-stats {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.player-bar .pb-edit {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 14px;
+}
+
+/* 排行榜 */
+#screen-leaderboard {
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+.lb-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 2px 12px;
+}
+.lb-head,
+.lb-row {
+  display: grid;
+  grid-template-columns: 36px 1fr 64px 56px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+}
+.lb-head {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+.lb-head .lb-rating,
+.lb-head .lb-wins,
+.lb-row .lb-rating,
+.lb-row .lb-wins {
+  text-align: right;
+}
+.lb-list .lb-row {
+  background: var(--panel);
+  border: 1px solid var(--panel-2);
+  border-radius: 12px;
+  margin-bottom: 6px;
+}
+.lb-row.me {
+  border-color: var(--accent);
+  background: rgba(108, 140, 255, 0.12);
+}
+.lb-row .lb-rank {
+  font-weight: 800;
+  color: var(--muted);
+}
+.lb-row.top1 .lb-rank {
+  color: #ffd34d;
+}
+.lb-row.top2 .lb-rank {
+  color: #cfd6e6;
+}
+.lb-row.top3 .lb-rank {
+  color: #e0a06a;
+}
+.lb-row .lb-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+.lb-row .lb-rating {
+  font-weight: 800;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.lb-row .lb-wins {
+  color: var(--accent-2);
+  font-variant-numeric: tabular-nums;
+}
+.lb-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 40px 0;
+  font-size: 14px;
+}
+
 /* 記分板 */
 .scoreboard {
   display: flex;
@@ -340,6 +583,10 @@ button:disabled {
 .score .label {
   font-size: 13px;
   color: var(--muted);
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .score .num {
   font-size: 34px;
@@ -350,6 +597,13 @@ button:disabled {
 }
 .score.opp .num {
   color: var(--accent-2);
+}
+.score .elo {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+  white-space: nowrap;
 }
 .vs .badge {
   display: inline-block;

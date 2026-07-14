@@ -36,6 +36,22 @@ export interface LastMove {
   char: string;
 }
 
+// 玩家身分（無需登入，client 於 localStorage 產生 UUID）
+export interface PlayerIdentity {
+  id: string;
+  name: string;
+}
+
+// 排行榜／個人戰績（對應 D1 players 表）
+export interface PlayerStats {
+  id: string;
+  name: string;
+  rating: number;
+  wins: number;
+  losses: number;
+  games: number;
+}
+
 // ---- Client -> Server ----
 export type ClientMessage =
   | { type: "insert"; index: number; char: string }
@@ -58,6 +74,8 @@ export type ServerMessage =
       mode: GameMode;
       restriction: Restriction | null; // 惡魔模式本回合限制
       allowedPositions: number[] | null; // 位置限制：目前可放入的位置；null 表示不限
+      names: { p1: string; p2: string }; // 雙方顯示名稱
+      ratings: { p1: number; p2: number }; // 雙方 ELO 積分（開局當下）
     }
   | {
       type: "update";

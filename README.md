@@ -9,6 +9,24 @@
   - `Lobby`（`src/index.ts`）：全域單一實例，負責隨機配對兩名玩家到同一房間。
   - `Game`（`src/game.ts`）：每房一個實例，以 WebSocket Hibernation API 管理雙方連線、回合狀態、20 秒計時（DO alarm），並在質疑時呼叫 LLM。
 - **Workers AI**：`@cf/openai/gpt-oss-120b` 進行質疑結算（`src/llm.ts`）。
+- **D1**：`DB` 綁定，儲存玩家帳號與對戰紀錄（`schema.sql`、`src/db.ts`）。
+
+## 帳號與排行榜
+
+- **無需登入**：身分（UUID + 暱稱）記錄在瀏覽器 `localStorage`；首次進入需輸入暱稱（會公開顯示於排行榜與對戰畫面）。
+- **對戰紀錄**：每場結束寫入 `matches` 表。
+- **ELO 積分**：初始 `1000`，K 值 `32`（`src/elo.ts`）；每場結束更新雙方積分與勝負場數。對手中途斷線時，留下者判勝並照常結算積分。
+- **排行榜**：`GET /api/leaderboard` 依積分排序；開始畫面「🏆 排行榜」可查看。
+- **對戰畫面**：比分與結算改以雙方暱稱顯示（自己一律標示「你」）。
+
+相關 API：`POST /api/register`（upsert 暱稱）、`GET /api/leaderboard`、`GET /api/player?id=`。
+
+### D1 初始化（首次部署前）
+
+```bash
+npx wrangler d1 create one-word-chain     # 建立資料庫，將輸出的 database_id 貼到 wrangler.jsonc
+npx wrangler d1 execute one-word-chain --remote --file=./schema.sql   # 建表（本地測試改用 --local）
+```
 
 ## 玩法規則
 

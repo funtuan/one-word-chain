@@ -11,8 +11,72 @@
   </head>
   <body>
     <div id="app">
+      <!-- 首次命名 -->
+      <section id="screen-name" class="screen">
+        <div class="name-box">
+          <h2 id="name-title">取個暱稱</h2>
+          <p class="name-hint">
+            這個名稱會 <b>公開顯示在排行榜與對戰畫面</b>，請勿填寫真實姓名等個人資料。
+          </p>
+          <input
+            id="name-input"
+            class="name-input"
+            type="text"
+            maxlength="20"
+            autocomplete="off"
+            placeholder="輸入暱稱（最多 20 字）"
+          />
+          <button id="btn-name-save" class="primary" disabled>開始遊戲</button>
+          <button id="btn-name-cancel" class="ghost" hidden>取消</button>
+
+          <div class="acct-section">
+            <!-- 我的帳號代碼（可攜到其他瀏覽器登入） -->
+            <div id="acct-export" class="acct-block" hidden>
+              <div class="acct-title">我的帳號代碼</div>
+              <div class="acct-code-row">
+                <code id="acct-code" class="acct-code">—</code>
+                <button id="btn-copy-code" class="ghost sm">複製</button>
+              </div>
+              <p class="acct-warn danger">
+                ⚠️ 此代碼等同你的帳號，任何人拿到都能登入你的帳號，<b>請勿外流</b>。
+              </p>
+            </div>
+
+            <!-- 用代碼登入既有帳號 -->
+            <div class="acct-block">
+              <button id="btn-show-import" class="link-btn">
+                用帳號代碼登入 ›
+              </button>
+              <div id="acct-import" hidden>
+                <input
+                  id="import-code"
+                  class="name-input"
+                  type="text"
+                  autocomplete="off"
+                  placeholder="例：OWC-AB23-CD45-EF67"
+                />
+                <p class="acct-warn danger">
+                  ⚠️ 登入後將切換到該帳號，<b>目前這個裝置上的帳號會被登出</b>（若沒有備份代碼將無法找回）。
+                </p>
+                <button id="btn-import" class="primary" disabled>登入此帳號</button>
+              </div>
+            </div>
+
+            <!-- 登出帳號（清除本機資料並建立新帳號） -->
+            <button id="btn-delete-account" class="danger-btn" hidden>
+              登出帳號
+            </button>
+          </div>
+        </div>
+      </section>
+
       <!-- 開始 / 配對 -->
       <section id="screen-start" class="screen active">
+        <button id="player-bar" class="player-bar" hidden>
+          <span class="pb-name" id="pb-name">—</span>
+          <span class="pb-stats" id="pb-stats"></span>
+          <span class="pb-edit" aria-hidden="true">✎</span>
+        </button>
         <h1>一字接龍</h1>
         <p class="tagline">輪流插字，覺得不合理就質疑！先得 5 分獲勝。</p>
         <div class="mode-switch" role="group" aria-label="遊戲模式">
@@ -25,6 +89,7 @@
         </div>
         <p id="mode-desc" class="mode-desc">一般規則，輪流插字接龍。</p>
         <button id="btn-play" class="primary">開始配對</button>
+        <button id="btn-leaderboard" class="ghost">🏆 排行榜</button>
         <button id="btn-help" class="ghost">遊戲說明</button>
         <a
           class="gh-link"
@@ -91,6 +156,23 @@
         <button id="btn-help-play" class="primary">開始配對</button>
       </section>
 
+      <!-- 排行榜 -->
+      <section id="screen-leaderboard" class="screen">
+        <header class="help-header">
+          <button id="btn-lb-back" class="back">‹ 返回</button>
+          <h2>🏆 排行榜</h2>
+        </header>
+        <div class="lb-body">
+          <div class="lb-head">
+            <span class="lb-rank">#</span>
+            <span class="lb-name">玩家</span>
+            <span class="lb-rating">積分</span>
+            <span class="lb-wins">勝場</span>
+          </div>
+          <div id="lb-list" class="lb-list"></div>
+        </div>
+      </section>
+
       <section id="screen-matching" class="screen">
         <div class="spinner"></div>
         <p id="matching-text">配對中…</p>
@@ -100,15 +182,17 @@
       <section id="screen-game" class="screen">
         <header class="scoreboard">
           <div class="score me">
-            <span class="label">我</span>
+            <span id="label-me" class="label">我</span>
             <span id="score-me" class="num">0</span>
+            <span id="elo-me" class="elo"></span>
           </div>
           <div class="vs">
             <span id="turn-badge" class="badge">—</span>
           </div>
           <div class="score opp">
-            <span class="label">對手</span>
+            <span id="label-opp" class="label">對手</span>
             <span id="score-opp" class="num">0</span>
+            <span id="elo-opp" class="elo"></span>
           </div>
         </header>
 

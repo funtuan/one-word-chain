@@ -3,6 +3,7 @@ import type {
   GameMode,
   GameStatus,
   LastMove,
+  PlayerIdentity,
   Restriction,
   RestrictionKind,
   Role,
@@ -11,6 +12,7 @@ import type {
 } from "./types";
 import { judge } from "./llm";
 import { computeAllowedPositions, KINDS, pickRestriction, ZODIAC_MIN_LEN } from "./devil";
+import { getPlayer, recordMatch } from "./db";
 import { SEED_WORDS } from "./seedWords";
 
 const TURN_MS = 20_000;
@@ -35,10 +37,14 @@ interface GameState {
   allowedPositions: number[] | null; // 位置限制：目前玩家可放入的位置
   pendingFirstMover?: Role; // result 階段結束後的下一回合先手
   pendingWinner?: Role | null; // result 階段結束後若非 null 即遊戲結束
+  players: { p1: PlayerIdentity | null; p2: PlayerIdentity | null }; // 雙方身分
+  ratings: { p1: number; p2: number }; // 雙方 ELO 積分（開局當下，整局不變）
+  recorded?: boolean; // 是否已寫入戰績（避免重複寫入）
 }
 
 interface Env {
   AI: Ai;
+  DB: D1Database;
 }
 
 export class Game {
@@ -63,10 +69,22 @@ export class Game {
     }
 
     const role: Role = existing.length === 0 ? "p1" : "p2";
+    const url = new URL(request.url);
     const mode: GameMode =
-      new URL(request.url).searchParams.get("mode") === "devil"
-        ? "devil"
-        : "normal";
+      url.searchParams.get("mode") === "devil" ? "devil" : "normal";
+
+    // 玩家身分（無需登入；沿用 client 於 localStorage 產生的 UUID 與名稱）
+    const identity: PlayerIdentity = {
+      id: (url.searchParams.get("playerId") ?? "").slice(0, 64),
+      name:
+        (url.searchParams.get("name") ?? "").trim().slice(0, 20) ||
+        (role === "p1" ? "玩家 1" : "玩家 2"),
+    };
+    const players =
+      (await this.ctx.storage.get<GameState["players"]>("players")) ??
+      ({ p1: null, p2: null } as GameState["players"]);
+    players[role] = identity;
+    await this.ctx.storage.put("players", players);
 
     const pair = new WebSocketPair();
     const client = pair[0];
@@ -128,6 +146,7 @@ export class Game {
       scores: s.scores,
       reason: "opponent_left",
     });
+    await this.recordResult(winner, "opponent_left");
   }
 
   async webSocketError(ws: WebSocket) {
@@ -150,6 +169,7 @@ export class Game {
           scores: s.scores,
           reason: "score",
         });
+        await this.recordResult(s.pendingWinner, "score");
       } else {
         await this.beginRound(s.pendingFirstMover ?? "p1");
       }
@@ -334,9 +354,53 @@ export class Game {
     return winner !== null;
   }
 
+  // 遊戲結束時寫入戰績並更新 ELO；只寫一次，D1 失敗不影響遊戲流程
+  private async recordResult(
+    winner: Role | null,
+    reason: "score" | "opponent_left",
+  ) {
+    const s = this.state;
+    if (!s || s.recorded) return;
+    const p1 = s.players?.p1;
+    const p2 = s.players?.p2;
+    // 需雙方身分且非同一人；勝方必須明確才更新積分
+    if (!winner || !p1?.id || !p2?.id || p1.id === p2.id) return;
+    s.recorded = true;
+    await this.save();
+    try {
+      await recordMatch(this.env.DB, {
+        matchId: crypto.randomUUID(),
+        p1,
+        p2,
+        winner,
+        scores: s.scores,
+        mode: s.mode,
+        reason,
+        now: Date.now(),
+      });
+    } catch {
+      /* D1 不可用（如純本地 dev）時略過，不阻斷遊戲 */
+    }
+  }
+
   // ---- 開局 / 開回合 ----
   private async startGame() {
     const mode = (await this.ctx.storage.get<GameMode>("mode")) ?? "normal";
+    const players =
+      (await this.ctx.storage.get<GameState["players"]>("players")) ??
+      ({ p1: null, p2: null } as GameState["players"]);
+    // 開局查雙方目前 ELO（未註冊者預設 1000），整局固定顯示
+    const ratings = { p1: 1000, p2: 1000 };
+    try {
+      const [a, b] = await Promise.all([
+        players.p1?.id ? getPlayer(this.env.DB, players.p1.id) : null,
+        players.p2?.id ? getPlayer(this.env.DB, players.p2.id) : null,
+      ]);
+      if (a) ratings.p1 = a.rating;
+      if (b) ratings.p2 = b.rating;
+    } catch {
+      /* D1 不可用時用預設 1000 */
+    }
     this.state = {
       status: "waiting",
       mode,
@@ -349,8 +413,19 @@ export class Game {
       restriction: null,
       usedRestrictions: [],
       allowedPositions: null,
+      players,
+      ratings,
     };
     await this.beginRound("p1");
+  }
+
+  // 雙方顯示名稱（供 start 訊息用）
+  private names(): { p1: string; p2: string } {
+    const p = this.state?.players;
+    return {
+      p1: p?.p1?.name ?? "玩家 1",
+      p2: p?.p2?.name ?? "玩家 2",
+    };
   }
 
   private async beginRound(firstMover: Role) {
@@ -394,6 +469,8 @@ export class Game {
         mode: s.mode,
         restriction: s.restriction,
         allowedPositions: s.allowedPositions,
+        names: this.names(),
+        ratings: s.ratings ?? { p1: 1000, p2: 1000 },
       });
     }
   }

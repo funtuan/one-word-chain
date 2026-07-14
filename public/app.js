@@ -4,17 +4,41 @@ const $ = (id) => document.getElementById(id);
 
 const el = {
   screens: {
+    name: $("screen-name"),
     start: $("screen-start"),
     help: $("screen-help"),
+    leaderboard: $("screen-leaderboard"),
     matching: $("screen-matching"),
     game: $("screen-game"),
   },
+  nameTitle: $("name-title"),
+  nameInput: $("name-input"),
+  btnNameSave: $("btn-name-save"),
+  btnNameCancel: $("btn-name-cancel"),
+  acctExport: $("acct-export"),
+  acctCode: $("acct-code"),
+  btnCopyCode: $("btn-copy-code"),
+  btnShowImport: $("btn-show-import"),
+  acctImport: $("acct-import"),
+  importCode: $("import-code"),
+  btnImport: $("btn-import"),
+  btnDeleteAccount: $("btn-delete-account"),
+  playerBar: $("player-bar"),
+  pbName: $("pb-name"),
+  pbStats: $("pb-stats"),
+  btnLeaderboard: $("btn-leaderboard"),
+  btnLbBack: $("btn-lb-back"),
+  lbList: $("lb-list"),
   btnPlay: $("btn-play"),
   btnHelp: $("btn-help"),
   btnHelpBack: $("btn-help-back"),
   btnHelpPlay: $("btn-help-play"),
   modeOpts: document.querySelectorAll(".mode-opt"),
   modeDesc: $("mode-desc"),
+  labelMe: $("label-me"),
+  labelOpp: $("label-opp"),
+  eloMe: $("elo-me"),
+  eloOpp: $("elo-opp"),
   restriction: $("restriction"),
   matchingText: $("matching-text"),
   scoreMe: $("score-me"),
@@ -38,6 +62,8 @@ const TURN_MS = 20000;
 const state = {
   ws: null,
   you: null, // "p1" | "p2"
+  names: { p1: "玩家 1", p2: "玩家 2" }, // 雙方顯示名稱
+  ratings: { p1: 1000, p2: 1000 }, // 雙方 ELO 積分
   mode: "normal", // "normal" | "devil"
   restriction: null, // 惡魔模式本回合限制
   allowedPositions: null, // 位置限制：可放入位置；null 表示不限
@@ -62,8 +88,222 @@ function show(name) {
   for (const k in el.screens) el.screens[k].classList.toggle("active", k === name);
 }
 
+// ---------- 身分（localStorage，無需登入）----------
+const STORE_KEY = "owc:player";
+const me = { id: null, name: null, stats: null };
+
+function loadIdentity() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (p && p.id) {
+        me.id = p.id;
+        me.name = p.name || null;
+      }
+    }
+  } catch {}
+  if (!me.id) me.id = genCode();
+}
+
+// 產生易讀的帳號代碼（去掉易混淆字元 0/O/1/I/L），代碼即帳號 id
+function genCode() {
+  const alphabet = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
+  const n = 12;
+  const bytes = new Uint8Array(n);
+  if (crypto.getRandomValues) crypto.getRandomValues(bytes);
+  else for (let i = 0; i < n; i++) bytes[i] = Math.floor(Math.random() * 256);
+  let s = "";
+  for (let i = 0; i < n; i++) s += alphabet[bytes[i] % alphabet.length];
+  return `OWC-${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8, 12)}`;
+}
+
+function saveIdentity() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({ id: me.id, name: me.name }));
+  } catch {}
+}
+
+// 向伺服器註冊／更新名稱，回傳最新戰績
+async function register() {
+  if (!me.id || !me.name) return;
+  try {
+    const res = await fetch("/api/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: me.id, name: me.name }),
+    });
+    if (res.ok) {
+      me.stats = await res.json();
+      renderPlayerBar();
+    }
+  } catch {}
+}
+
+function renderPlayerBar() {
+  if (!me.name) {
+    el.playerBar.hidden = true;
+    return;
+  }
+  el.pbName.textContent = me.name;
+  el.pbStats.textContent = me.stats
+    ? `${me.stats.rating} 分 · ${me.stats.wins} 勝`
+    : "";
+  el.playerBar.hidden = false;
+}
+
+// ---------- 命名 ----------
+function openNameScreen(editing) {
+  el.nameTitle.textContent = editing ? "修改暱稱" : "取個暱稱";
+  el.nameInput.value = me.name || "";
+  el.btnNameSave.disabled = !el.nameInput.value.trim();
+  el.btnNameSave.textContent = editing ? "儲存" : "開始遊戲";
+  el.btnNameCancel.hidden = !editing;
+  // 帳號代碼：已有帳號（設過名稱）才顯示「我的代碼」與「刪除帳號」
+  el.acctExport.hidden = !me.name;
+  el.btnDeleteAccount.hidden = !me.name;
+  el.acctCode.textContent = accountCode();
+  el.btnCopyCode.textContent = "複製";
+  el.acctImport.hidden = true;
+  el.importCode.value = "";
+  el.btnImport.disabled = true;
+  show("name");
+  setTimeout(() => el.nameInput.focus(), 50);
+}
+
+// ---------- 帳號代碼（可攜到其他瀏覽器登入）----------
+// 代碼即帳號 id，無需編解碼
+function accountCode() {
+  return me.id || "";
+}
+
+// 正規化輸入的代碼：OWC 代碼統一大寫；舊版 UUID 維持原樣
+function normalizeCode(code) {
+  const c = (code || "").trim();
+  if (!c) return null;
+  return /^owc-/i.test(c) ? c.toUpperCase() : c;
+}
+
+async function copyCode() {
+  const code = accountCode();
+  try {
+    await navigator.clipboard.writeText(code);
+    el.btnCopyCode.textContent = "已複製 ✓";
+  } catch {
+    // 退回：選取文字讓使用者手動複製
+    const range = document.createRange();
+    range.selectNodeContents(el.acctCode);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    el.btnCopyCode.textContent = "請手動複製";
+  }
+  setTimeout(() => (el.btnCopyCode.textContent = "複製"), 2000);
+}
+
+// 用代碼登入既有帳號：切換身分並從伺服器載入該帳號名稱
+async function importAccount() {
+  const id = normalizeCode(el.importCode.value);
+  if (!id) {
+    el.importCode.value = "";
+    el.importCode.placeholder = "請貼上帳號代碼";
+    el.btnImport.disabled = true;
+    return;
+  }
+  el.btnImport.disabled = true;
+  el.btnImport.textContent = "登入中…";
+  let stats = null;
+  try {
+    const res = await fetch("/api/player?id=" + encodeURIComponent(id));
+    if (res.ok) stats = (await res.json()).player;
+  } catch {}
+  el.btnImport.textContent = "登入此帳號";
+  if (!stats) {
+    el.importCode.value = "";
+    el.importCode.placeholder = "找不到此帳號代碼對應的帳號";
+    return;
+  }
+  // 覆蓋本機身分（原帳號等於登出）
+  me.id = stats.id;
+  me.name = stats.name;
+  me.stats = stats;
+  saveIdentity();
+  renderPlayerBar();
+  show("start");
+  register();
+}
+
+// 登出帳號：清除本機資料、產生新 id，回到命名頁建立新帳號
+function deleteAccount() {
+  const ok = window.confirm(
+    "確定登出此帳號嗎？\n本機將清除並建立全新帳號。若沒有備份「帳號代碼」，將無法再登入回此帳號。",
+  );
+  if (!ok) return;
+  try {
+    localStorage.removeItem(STORE_KEY);
+  } catch {}
+  me.id = null;
+  me.name = null;
+  me.stats = null;
+  loadIdentity(); // 產生全新 id
+  renderPlayerBar();
+  openNameScreen(false);
+}
+
+async function saveName() {
+  const name = el.nameInput.value.trim().slice(0, 20);
+  if (!name) return;
+  me.name = name;
+  saveIdentity();
+  renderPlayerBar();
+  show("start");
+  await register();
+}
+
+// ---------- 排行榜 ----------
+async function openLeaderboard() {
+  show("leaderboard");
+  el.lbList.innerHTML = `<div class="lb-empty">載入中…</div>`;
+  try {
+    const res = await fetch("/api/leaderboard?limit=20");
+    const { players } = await res.json();
+    renderLeaderboard(players || []);
+  } catch {
+    el.lbList.innerHTML = `<div class="lb-empty">載入失敗，請稍後再試</div>`;
+  }
+}
+
+function renderLeaderboard(players) {
+  if (!players.length) {
+    el.lbList.innerHTML = `<div class="lb-empty">還沒有人上榜，快來成為第一名！</div>`;
+    return;
+  }
+  el.lbList.innerHTML = players
+    .map((p, i) => {
+      const rank = i + 1;
+      const cls = [
+        "lb-row",
+        rank <= 3 ? `top${rank}` : "",
+        p.id === me.id ? "me" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return `<div class="${cls}">
+        <span class="lb-rank">${rank}</span>
+        <span class="lb-name">${escapeHtml(p.name)}</span>
+        <span class="lb-rating">${p.rating}</span>
+        <span class="lb-wins">${p.wins}</span>
+      </div>`;
+    })
+    .join("");
+}
+
 // ---------- 配對 + 連線 ----------
 async function play() {
+  if (!me.name) {
+    openNameScreen(false);
+    return;
+  }
   show("matching");
   el.matchingText.textContent = "配對中…";
   try {
@@ -78,8 +318,13 @@ async function play() {
 
 function connect(gameId) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
+  const q = new URLSearchParams({
+    mode: state.mode,
+    playerId: me.id || "",
+    name: me.name || "",
+  });
   const ws = new WebSocket(
-    `${proto}://${location.host}/game/${gameId}/ws?mode=${state.mode}`,
+    `${proto}://${location.host}/game/${gameId}/ws?${q}`,
   );
   state.ws = ws;
 
@@ -122,6 +367,12 @@ function handle(msg) {
       state.target = msg.target;
       state.mode = msg.mode;
       state.restriction = msg.restriction;
+      if (msg.names) state.names = msg.names;
+      if (msg.ratings) state.ratings = msg.ratings;
+      el.labelMe.textContent = myName();
+      el.labelOpp.textContent = oppName();
+      el.eloMe.textContent = `${state.ratings[state.you]} 分`;
+      el.eloOpp.textContent = `${state.ratings[other(state.you)]} 分`;
       renderRestriction();
       hideOverlay();
       applyRound(msg);
@@ -325,8 +576,8 @@ function showSettled(msg) {
   if (timeout) {
     infoHtml = `<div class="settle-info">時間到還沒出手</div>`;
   } else {
-    const who = msg.challenger === state.you ? "你" : "對手";
-    infoHtml = `<div class="settle-info">${who}質疑了「${escapeHtml(msg.challengedChar)}」這個字</div>`;
+    const who = sideLabel(msg.challenger);
+    infoHtml = `<div class="settle-info">${escapeHtml(who)}質疑了「${escapeHtml(msg.challengedChar)}」這個字</div>`;
   }
 
   // 計分明細（條列，每項標明歸屬某一方與加分）
@@ -340,7 +591,7 @@ function showSettled(msg) {
     totalHtml = `<div class="sheet-total tie">本回合平手，不計分</div>`;
   } else {
     const mine = msg.awardedTo === state.you;
-    totalHtml = `<div class="sheet-total ${mine ? "me" : "opp"}">本回合加總　${mine ? "你" : "對手"} +${msg.awardedPoints} 分</div>`;
+    totalHtml = `<div class="sheet-total ${mine ? "me" : "opp"}">本回合加總　${escapeHtml(sideLabel(msg.awardedTo))} +${msg.awardedPoints} 分</div>`;
   }
 
   // 對雙方現有分數的影響（before → after）
@@ -357,7 +608,7 @@ function showSettled(msg) {
     <div class="score-change">
       <div class="sheet-head">分數變化（先達 ${state.target} 分獲勝）</div>
       ${changeRow("你", beforeYou, afterYou, msg.awardedTo === you)}
-      ${changeRow("對手", beforeOpp, afterOpp, msg.awardedTo === opp)}
+      ${changeRow(oppName(), beforeOpp, afterOpp, msg.awardedTo === opp)}
     </div>`;
 
   el.ovBody.innerHTML = `
@@ -396,17 +647,21 @@ function showGameover(msg) {
   const win = msg.winner === state.you;
   el.ovTitle.textContent = win ? "🎉 你贏了！" : "你輸了";
   const reason =
-    msg.reason === "opponent_left" ? "對手已離線" : "有人先達到 5 分";
+    msg.reason === "opponent_left"
+      ? `${oppName()} 已離線`
+      : `有人先達到 ${state.target} 分`;
   el.ovBody.innerHTML = `
-    <div class="judge-reason">${reason}</div>
+    <div class="judge-reason">${escapeHtml(reason)}</div>
     <div class="judge-row">
-      <div class="judge-item"><span class="k">我</span><span class="v">${msg.scores[state.you]}</span></div>
-      <div class="judge-item"><span class="k">對手</span><span class="v">${msg.scores[other(state.you)]}</span></div>
+      <div class="judge-item"><span class="k">${escapeHtml(myName())}</span><span class="v">${msg.scores[state.you]}</span></div>
+      <div class="judge-item"><span class="k">${escapeHtml(oppName())}</span><span class="v">${msg.scores[other(state.you)]}</span></div>
     </div>
   `;
   el.ovBtn.textContent = "再玩一場";
   el.ovBtn.onclick = () => location.reload();
   el.overlay.classList.add("show");
+  // 對戰結束後更新自身積分（供返回開始頁時顯示最新資料）
+  register();
 }
 
 function hideOverlay() {
@@ -483,7 +738,7 @@ function rowHtml(it) {
     pts = `<span class="sr-pts zero">0 分</span>`;
   } else {
     const mine = it.role === state.you;
-    pts = `<span class="sr-pts ${mine ? "me" : "opp"}">${mine ? "你" : "對手"} +${it.pts}</span>`;
+    pts = `<span class="sr-pts ${mine ? "me" : "opp"}">${escapeHtml(sideLabel(it.role))} +${it.pts}</span>`;
   }
   return `<div class="sheet-row${it.devil ? " devil" : ""}"><span class="sr-label">${it.label}</span>${pts}</div>`;
 }
@@ -494,7 +749,7 @@ function changeRow(name, before, after, changed) {
     before === after
       ? `<span class="cv same">${after}</span>`
       : `<span class="cv"><span class="cv-old">${before}</span> → <span class="cv-new">${after}</span></span>`;
-  return `<div class="change-row${changed ? " changed" : ""}"><span class="ck">${name}</span>${val}</div>`;
+  return `<div class="change-row${changed ? " changed" : ""}"><span class="ck">${escapeHtml(name)}</span>${val}</div>`;
 }
 
 // ---------- 工具 ----------
@@ -513,6 +768,16 @@ function fillerWord(b) {
 }
 function other(role) {
   return role === "p1" ? "p2" : "p1";
+}
+function myName() {
+  return (state.you && state.names[state.you]) || "你";
+}
+function oppName() {
+  return (state.you && state.names[other(state.you)]) || "對手";
+}
+// 結算/明細用：自己顯示「你」，對手顯示其名稱
+function sideLabel(role) {
+  return role === state.you ? "你" : oppName();
 }
 function flashHint(text) {
   el.hint.textContent = text;
@@ -539,3 +804,47 @@ el.charInput.addEventListener("input", updateControls);
 el.charInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !el.btnSubmit.disabled) submitInsert();
 });
+
+// 命名
+el.nameInput.addEventListener("input", () => {
+  el.btnNameSave.disabled = !el.nameInput.value.trim();
+});
+el.nameInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !el.btnNameSave.disabled) saveName();
+});
+el.btnNameSave.addEventListener("click", saveName);
+el.btnNameCancel.addEventListener("click", () => show("start"));
+el.playerBar.addEventListener("click", () => openNameScreen(true));
+
+// 帳號代碼
+el.btnCopyCode.addEventListener("click", copyCode);
+el.btnShowImport.addEventListener("click", () => {
+  el.acctImport.hidden = !el.acctImport.hidden;
+  if (!el.acctImport.hidden) el.importCode.focus();
+});
+el.importCode.addEventListener("input", () => {
+  el.importCode.placeholder = "例：OWC-AB23-CD45-EF67";
+  el.btnImport.disabled = !el.importCode.value.trim();
+});
+el.importCode.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !el.btnImport.disabled) importAccount();
+});
+el.btnImport.addEventListener("click", importAccount);
+el.btnDeleteAccount.addEventListener("click", deleteAccount);
+
+// 排行榜
+el.btnLeaderboard.addEventListener("click", openLeaderboard);
+el.btnLbBack.addEventListener("click", () => show("start"));
+
+// ---------- 啟動 ----------
+function boot() {
+  loadIdentity();
+  if (me.name) {
+    renderPlayerBar();
+    show("start");
+    register(); // 更新名稱並取回最新戰績
+  } else {
+    openNameScreen(false);
+  }
+}
+boot();
