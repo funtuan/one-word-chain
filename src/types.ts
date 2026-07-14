@@ -6,12 +6,16 @@ export type Role = "p1" | "p2";
 export type GameMode = "normal" | "devil";
 
 // 惡魔模式的回合限制種類
-export type RestrictionKind = "position" | "zhuyin" | "zodiac";
+export type RestrictionKind = "position" | "zhuyin" | "zodiac" | "pos";
+
+// 詞性限制：本回合「不可放入」的詞性（三選一）
+export type PosCategory = "名詞" | "動詞" | "形容詞";
 
 export interface Restriction {
   kind: RestrictionKind;
   finals?: string[]; // zhuyin：本回合允許的 3 個韻符
   zodiac?: { name: string; desc: string }; // zodiac：本回合星座
+  pos?: PosCategory; // pos：本回合禁止的詞性
 }
 
 export type GameStatus =
@@ -82,6 +86,7 @@ export type ServerMessage =
       restriction: Restriction | null; // 惡魔模式本回合限制（供顯示）
       zhuyinMatch?: boolean; // zhuyin 限制：被質疑字是否符合韻符
       zodiacScore?: number; // zodiac 限制：語氣相符度 -3~3（僅句長超過門檻時）
+      posViolation?: boolean; // pos 限制：被質疑字是否為禁止的詞性（true = 違規）
     }
   | {
       type: "gameover";

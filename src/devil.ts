@@ -1,7 +1,7 @@
 // 惡魔模式：每回合隨機抽選一個限制（位置 / 注音 / 星座），雙方共用。
 // 見 plan/v1.md。
 
-import type { Restriction, RestrictionKind } from "./types";
+import type { PosCategory, Restriction, RestrictionKind } from "./types";
 
 // 注音韻符（韻母）候選：每回合隨機抽 3 個
 export const ZHUYIN_FINALS = [
@@ -28,7 +28,10 @@ export const ZODIACS: { name: string; desc: string }[] = [
 // 星座限制的生效門檻：句子超過此長度時才計分
 export const ZODIAC_MIN_LEN = 5;
 
-export const KINDS: RestrictionKind[] = ["position", "zhuyin", "zodiac"];
+// 詞性限制候選：每回合隨機禁止其中一種詞性
+export const POS_CATEGORIES: PosCategory[] = ["名詞", "動詞", "形容詞"];
+
+export const KINDS: RestrictionKind[] = ["position", "zhuyin", "zodiac", "pos"];
 
 // 隨機為一回合產生限制；優先挑選前面回合尚未出現過的種類（used 已用過的種類），
 // 三種都出現過後由呼叫端重置循環。
@@ -42,6 +45,10 @@ export function pickRestriction(used: RestrictionKind[] = []): Restriction {
   if (kind === "zodiac") {
     const z = ZODIACS[Math.floor(Math.random() * ZODIACS.length)];
     return { kind, zodiac: z };
+  }
+  if (kind === "pos") {
+    const pos = POS_CATEGORIES[Math.floor(Math.random() * POS_CATEGORIES.length)];
+    return { kind, pos };
   }
   return { kind };
 }

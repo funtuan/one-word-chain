@@ -10,7 +10,7 @@ import type {
   ServerMessage,
 } from "./types";
 import { judge } from "./llm";
-import { computeAllowedPositions, pickRestriction, ZODIAC_MIN_LEN } from "./devil";
+import { computeAllowedPositions, KINDS, pickRestriction, ZODIAC_MIN_LEN } from "./devil";
 import { SEED_WORDS } from "./seedWords";
 
 const TURN_MS = 20_000;
@@ -257,7 +257,7 @@ export class Game {
     const lastChar = s.lastMove!.char;
     const lastIndex = s.lastMove!.index;
     const sentence = s.sentence.join("");
-    const { A, B, reason, zhuyinMatch, zodiacScore } = await judge(
+    const { A, B, reason, zhuyinMatch, zodiacScore, posViolation } = await judge(
       this.env.AI,
       sentence,
       lastChar,
@@ -278,6 +278,10 @@ export class Game {
       typeof zodiacScore === "number"
     ) {
       delta += zodiacScore;
+    }
+    // 詞性限制：被質疑字為禁止的詞性 -> 質疑方 +3
+    if (s.restriction?.kind === "pos" && posViolation === true) {
+      delta -= 3;
     }
 
     let awardedTo: Role | null = null;
@@ -313,6 +317,7 @@ export class Game {
       restriction: s.restriction,
       zhuyinMatch,
       zodiacScore,
+      posViolation,
     });
     await this.ctx.storage.setAlarm(Date.now() + RESULT_MS);
   }
@@ -359,7 +364,7 @@ export class Game {
     s.turnDeadline = Date.now() + TURN_MS;
     // 惡魔模式：每回合抽一個限制，優先挑前面回合沒出現過的種類
     if (s.mode === "devil") {
-      if (!s.usedRestrictions || s.usedRestrictions.length >= 3) {
+      if (!s.usedRestrictions || s.usedRestrictions.length >= KINDS.length) {
         s.usedRestrictions = [];
       }
       s.restriction = pickRestriction(s.usedRestrictions);

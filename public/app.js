@@ -54,7 +54,7 @@ const state = {
 
 const MODE_DESC = {
   normal: "一般規則，輪流插字接龍。",
-  devil: "每回合隨機抽一個限制：位置、注音韻符或星座語氣，雙方共用。",
+  devil: "每回合隨機抽一個限制：位置、注音韻符、星座語氣或詞性，雙方共用。",
 };
 
 // ---------- 畫面切換 ----------
@@ -219,6 +219,8 @@ function renderRestriction() {
     html = `<span class="r-tag">😈 注音限制</span><span class="r-text">放入的字字韻母須為 ${finals}，不符合對手 +3 分。</span>`;
   } else if (r.kind === "zodiac" && r.zodiac) {
     html = `<span class="r-tag">😈 星座限制 · ${escapeHtml(r.zodiac.name)}</span><span class="r-text">句子超過 5 字後，須像${escapeHtml(r.zodiac.name)}會說的話。<br>${escapeHtml(r.zodiac.desc)}</span>`;
+  } else if (r.kind === "pos" && r.pos) {
+    html = `<span class="r-tag">😈 詞性限制</span><span class="r-text">放入的字不可是 <b class="r-final">${escapeHtml(r.pos)}</b>，違規對手 +3 分。</span>`;
   }
   el.restriction.innerHTML = html;
   el.restriction.hidden = false;
@@ -459,6 +461,13 @@ function scoreItems(msg, timeout) {
       notes.push(`😈 星座語氣（${zn}）· 普通，未加減分`);
     } else {
       notes.push(`😈 星座（${zn}）：句子未超過 5 字，不計星座分`);
+    }
+  } else if (r && r.kind === "pos") {
+    const pos = r.pos ? escapeHtml(r.pos) : "";
+    if (msg.posViolation === true) {
+      items.push({ label: `😈 詞性違規（是${pos}）`, role: challenger, pts: 3, devil: true });
+    } else if (msg.posViolation === false) {
+      notes.push(`😈 詞性符合（非${pos}），未加減分`);
     }
   } else if (r && r.kind === "position") {
     notes.push(`😈 位置限制不影響計分`);

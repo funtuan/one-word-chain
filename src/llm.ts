@@ -13,6 +13,7 @@ export interface Judgement {
   reason: string;
   zhuyinMatch?: boolean; // zhuyin 限制：被質疑字是否符合韻符
   zodiacScore?: number; // zodiac 限制：語氣相符度 -3~3
+  posViolation?: boolean; // pos 限制：被質疑字是否為禁止的詞性（true = 違規）
 }
 
 export async function judge(
@@ -29,6 +30,7 @@ export async function judge(
     restriction?.kind === "zodiac" &&
     !!restriction.zodiac &&
     chars.length > ZODIAC_MIN_LEN;
+  const posOn = restriction?.kind === "pos" && !!restriction.pos;
 
   const jsonFields = ['"A": <整數>', '"B": <整數>', '"reason": "<20字內中文理由>"'];
 
@@ -58,6 +60,14 @@ export async function judge(
       `zodiacScore = 判斷當前整句話的語氣、內容有多符合${z.name}的個性，範圍 -3 到 3 的整數（-3 完全不像、0 普通、3 非常像）。`,
     );
     jsonFields.push('"zodiacScore": <整數>');
+  }
+  if (posOn) {
+    const pos = restriction!.pos!;
+    lines.push(
+      `本回合有「詞性限制」：本回合「禁止」放入詞性為「${pos}」的字。`,
+      `posViolation = 判斷「最後放入的那個字」（${lastChar}）在整句話中所扮演的詞性是否為「${pos}」，是（違規）則 true、否則 false（布林值）。請依該字在此句中的實際用法判斷，而非它單獨時可能的詞性。`,
+    );
+    jsonFields.push('"posViolation": <true 或 false>');
   }
 
   lines.push(
@@ -145,6 +155,7 @@ function parseJudgement(text: string): Judgement | null {
   if (typeof obj.zhuyinMatch === "boolean") result.zhuyinMatch = obj.zhuyinMatch;
   const zs = clampInt(obj.zodiacScore, -3, 3);
   if (zs !== null && obj.zodiacScore != null) result.zodiacScore = zs;
+  if (typeof obj.posViolation === "boolean") result.posViolation = obj.posViolation;
   return result;
 }
 
