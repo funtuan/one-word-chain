@@ -22,4 +22,4 @@
 - 部署在 Cloudflare Woker 包括前端後端
 - 使用 Duable Object 實作對戰與 Websocket 連線機制
 - 挑戰結算使用 LLM 進行判斷
-    - AI Model 使用 OpenRouter 的 openai/gpt-oss-20b:nitro
+    - AI Model 使用 OpenRouter 的 openai/gpt-oss-20b，並指定便宜的 provider（Weights & Biases / WandB）

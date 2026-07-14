@@ -673,18 +673,29 @@ function showSettled(msg) {
   const timeout = msg.challengedChar === null;
   el.ovTitle.textContent = timeout ? "時間到" : "回合結算";
 
-  // AI 評語置頂（超時無評分則略過）
+  // AI 評語（超時無評分則略過）
   const reasonHtml = msg.reason
     ? `<div class="ai-verdict"><span class="ai-tag">AI 裁判</span><span class="ai-text">${escapeHtml(msg.reason)}</span></div>`
     : "";
 
-  // 這回合發生什麼
+  // 這回合發生什麼：秀出目前接龍全字，最後放入的字以樣式標記
+  const chars = Array.isArray(msg.sentence)
+    ? msg.sentence
+    : Array.from(msg.sentence || "");
+  const charsHtml = chars
+    .map((c, i) => {
+      const latest = !timeout && i === msg.challengedIndex;
+      return `<span class="settle-char${latest ? " latest" : ""}">${escapeHtml(c)}</span>`;
+    })
+    .join("");
+  const chainHtml = charsHtml
+    ? `<div class="settle-chain">${charsHtml}</div>`
+    : "";
   let infoHtml;
   if (timeout) {
-    infoHtml = `<div class="settle-info">時間到還沒出手</div>`;
+    infoHtml = `<div class="settle-info">${chainHtml}<div class="settle-last">時間到還沒出手</div></div>`;
   } else {
-    const who = sideLabel(msg.challenger);
-    infoHtml = `<div class="settle-info">${escapeHtml(who)}挑戰了「${escapeHtml(msg.challengedChar)}」這個字</div>`;
+    infoHtml = `<div class="settle-info">${chainHtml}</div>`;
   }
 
   // 計分明細（條列，每項標明歸屬某一方與加分）
@@ -719,8 +730,8 @@ function showSettled(msg) {
     </div>`;
 
   el.ovBody.innerHTML = `
-    ${reasonHtml}
     ${infoHtml}
+    ${reasonHtml}
     <div class="score-sheet">
       <div class="sheet-head">計分明細</div>
       ${rowsHtml}

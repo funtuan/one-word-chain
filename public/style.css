@@ -736,7 +736,7 @@ button.sm {
   font-size: 15px;
 }
 
-/* 結算：AI 評語置頂 */
+/* 結算：AI 評語 */
 .ai-verdict {
   display: flex;
   gap: 8px;
@@ -766,6 +766,29 @@ button.sm {
   font-size: 14px;
   color: var(--muted);
   margin-bottom: 10px;
+}
+.settle-chain {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 1px;
+  font-size: 22px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.settle-char {
+  padding: 2px 3px;
+  border-radius: 6px;
+}
+.settle-char.latest {
+  background: rgba(53, 208, 165, 0.22);
+  color: var(--accent-2);
+  font-weight: 700;
+}
+.settle-last {
+  font-size: 13px;
+  color: var(--muted);
 }
 
 /* 結算：計分明細 */

@@ -4,14 +4,21 @@
 
 import type { Restriction } from "./types";
 
-// :nitro 變體：依 throughput 排序 provider，優先選擇最快的服務
-const MODEL = "openai/gpt-oss-20b:nitro";
+const MODEL = "openai/gpt-oss-20b";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-// OpenRouter 計價（USD / token）— 來源：openrouter.ai/openai/gpt-oss-20b
-// openai/gpt-oss-20b：輸入 $0.075/M、輸出 $0.30/M
-const PRICE_IN_PER_TOKEN = 0.075 / 1_000_000;
-const PRICE_OUT_PER_TOKEN = 0.30 / 1_000_000;
+// 指定便宜的 provider：優先 Weights & Biases (WandB, fp4)，掛掉時依序退到次便宜的
+// DekaLLM、DeepInfra。allow_fallbacks: false → 只在這三家之內輪替，絕不退到昂貴的服務；
+// 若三家都不可用則整個請求失敗（由上層重試 / 不計分邏輯處理）。
+const PROVIDER = {
+  order: ["wandb/fp4", "dekallm/bf16", "deepinfra/bf16"],
+  allow_fallbacks: false,
+};
+
+// OpenRouter 計價（USD / token）— 以主要 provider WandB fp4 為準：輸入 $0.03/M、輸出 $0.13/M。
+// 兩個備援 provider 價格幾乎相同（輸入 $0.029~0.03/M、輸出 $0.14/M），觸發時費用估算誤差極小。
+const PRICE_IN_PER_TOKEN = 0.03 / 1_000_000;
+const PRICE_OUT_PER_TOKEN = 0.13 / 1_000_000;
 
 export interface Judgement {
   A: number;
@@ -129,7 +136,7 @@ export async function judge(
     let text = "";
     attempts++;
     try {
-      // OpenRouter chat-completions 格式（OpenAI 相容）；:nitro 變體自行處理 provider 路由
+      // OpenRouter chat-completions 格式（OpenAI 相容）；provider 欄位指定只走 WandB
       const resp = await fetch(OPENROUTER_URL, {
         method: "POST",
         headers: {
@@ -138,6 +145,7 @@ export async function judge(
         },
         body: JSON.stringify({
           model: MODEL,
+          provider: PROVIDER,
           messages: [
             { role: "system", content: instructions },
             { role: "user", content: input },

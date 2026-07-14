@@ -99,6 +99,7 @@ export type ServerMessage =
       type: "settled";
       challenger: Role;
       challengedChar: string | null; // 被挑戰的字；null 表示超時未出手
+      challengedIndex: number | null; // 被挑戰字在 sentence 中的位置；null 表示超時未出手
       A: number; // 整句合理度 -3~3
       B: number; // 末字語助詞程度 0~3
       delta: number; // A - B
