@@ -1,18 +1,17 @@
-// 挑戰結算：使用 OpenRouter (xiaomi/mimo-v2.5) 判斷，固定 provider 為 Xiaomi
+// 挑戰結算：使用 OpenRouter (openai/gpt-oss-safeguard-20b) 判斷
 //  A: 當前整句話合理與否，-3(非常不合理) 到 3(非常合理)
 //  B: 最後放入的字是否為無意義語助詞，0(完全不是) 到 3(完全是)
 
 import type { Restriction } from "./types";
 
-const MODEL = "xiaomi/mimo-v2.5";
+// :nitro 變體：依 throughput 排序 provider，優先選擇最快的服務
+const MODEL = "openai/gpt-oss-safeguard-20b:nitro";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-// 固定 provider 為 Xiaomi，不允許 fallback 到其他 provider
-const PROVIDER_ROUTING = { order: ["xiaomi"], allow_fallbacks: false };
 
-// OpenRouter 計價（USD / token）— 來源：openrouter.ai/xiaomi/mimo-v2.5
-// xiaomi/mimo-v2.5：輸入 $0.105/M、輸出 $0.28/M
-const PRICE_IN_PER_TOKEN = 0.105 / 1_000_000;
-const PRICE_OUT_PER_TOKEN = 0.28 / 1_000_000;
+// OpenRouter 計價（USD / token）— 來源：openrouter.ai/openai/gpt-oss-safeguard-20b
+// openai/gpt-oss-safeguard-20b：輸入 $0.075/M、輸出 $0.30/M
+const PRICE_IN_PER_TOKEN = 0.075 / 1_000_000;
+const PRICE_OUT_PER_TOKEN = 0.30 / 1_000_000;
 
 export interface Judgement {
   A: number;
@@ -69,9 +68,12 @@ export async function judge(
     "你是一個嚴謹的中文一字接龍裁判。",
     "玩家輪流在句子中放入單一中文字，另一方可挑戰句子不合理。",
     "請針對「當前整句話」以及「最後被放入的那個字」做兩項評分：",
-    "A = 這句話目前的內容是否合理，範圍 -3 到 3 的整數（-3 非常不合理、0 普通、3 非常合理）。",
-    "評 A 要同時看兩個層面：(1) 語法是否通順；(2) 含義是否合理、符合常理邏輯。就算語法通順，若字詞搭配後的意思荒謬、矛盾或不符常識（例如「太陽在海裡游泳」），也要判為不合理、給低分。",
-    "重要：句子是玩家一次一個字慢慢接出來的，本來就可能還沒接完。請「不要」因為主詞、受詞或語法不完整而扣分，只需判斷現有的字彼此搭配起來，語法與含義是否都合理、說得通。",
+    "A = 這句話目前的內容是否既合理又自然，範圍 -3 到 3 的整數。",
+    "評 A 要同時看三個層面，任一層面不佳都要扣分：(1) 語法是否通順；(2) 含義是否合理、符合常理邏輯；(3) 語感是否自然，也就是用詞與搭配是否符合台灣繁體中文母語人士的自然講法。",
+    "特別注意第 (3) 點：就算語法沒有明顯錯誤、含義也不算荒謬，只要唸起來拗口、生硬、詞語搭配牽強生造、或不像台灣母語人士自然會講出來的話（例如「街邊好區」這種硬湊、不自然的組合），就要判為不自然而給負分，絕對不可因為「勉強說得通」就給正分或高分。",
+    "第 (2) 點：就算語法通順，若字詞搭配後的意思荒謬、矛盾或不符常識（例如「太陽在海裡游泳」），也要判為不合理、給低分。",
+    "評分請「從嚴」，寧可扣分也不要輕易給高分，評分基準如下：3 = 通順、自然、意義清楚，明顯是母語人士會自然講出來的話；1 到 2 = 大致通順自然，但略平淡或普通；0 = 中性、難以判斷；-1 到 -2 = 唸起來生硬拗口、搭配牽強、不像母語人士會講的話（例如「街邊好區」）；-3 = 語意荒謬、矛盾或完全不通。",
+    "重要：句子是玩家一次一個字慢慢接出來的，本來就可能還沒接完。請「不要」因為主詞、受詞或整句語法尚未接完整而扣分；但詞語彼此之間搭配生硬、不自然，仍要依第 (3) 點照常扣分。",
     "B = 最後放入的那個字在整句話中是否只是無意義的語助詞（例如 的、了、啊、呢、嗎、吧、喔），範圍 0 到 3 的整數（0 完全不是語助詞、3 完全是無意義語助詞）。",
     "整句話中，最後放入的那個字會被【】包住標示位置。【】本身不是句子內容，判斷語法與含義時請忽略這對符號。",
   ];
@@ -115,7 +117,7 @@ export async function judge(
     let text = "";
     attempts++;
     try {
-      // OpenRouter chat-completions 格式（OpenAI 相容），並固定 provider 為 Xiaomi
+      // OpenRouter chat-completions 格式（OpenAI 相容）；:nitro 變體自行處理 provider 路由
       const resp = await fetch(OPENROUTER_URL, {
         method: "POST",
         headers: {
@@ -124,7 +126,6 @@ export async function judge(
         },
         body: JSON.stringify({
           model: MODEL,
-          provider: PROVIDER_ROUTING,
           messages: [
             { role: "system", content: instructions },
             { role: "user", content: input },
