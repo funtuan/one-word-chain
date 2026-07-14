@@ -75,6 +75,7 @@ export type ServerMessage =
       allowedPositions: number[] | null; // 位置限制：目前可放入的位置；null 表示不限
       names: { p1: string; p2: string }; // 雙方顯示名稱
       ratings: { p1: number; p2: number }; // 雙方 ELO 積分（開局當下）
+      timeoutQuota: Scores; // 雙方剩餘的超時額度（整場不重置）
     }
   | {
       type: "update";
@@ -85,6 +86,14 @@ export type ServerMessage =
       lastMove: LastMove | null;
       canChallenge: boolean;
       allowedPositions: number[] | null; // 位置限制：下一位玩家可放入的位置
+      timeoutQuota: Scores; // 雙方剩餘的超時額度
+    }
+  | {
+      // 超時但當事人尚有額度：自動用掉一次，該回合 +10 秒，不計分
+      type: "timeoutExtend";
+      player: Role; // 超時並用掉額度的一方
+      deadline: number; // 延長後的新截止時間（epoch ms）
+      timeoutQuota: Scores; // 更新後雙方剩餘額度
     }
   | {
       type: "settled";

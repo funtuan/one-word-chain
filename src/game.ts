@@ -19,6 +19,9 @@ import { SEED_WORDS } from "./seedWords";
 const TURN_MS = 20_000;
 const RESULT_MS = 7_000; // 結算結果停留時間
 const TARGET = 5;
+// 超時額度：每人每場預設 2 次，超時時自動用掉一次換取 +10 秒（整場不重置）
+const TIMEOUT_QUOTA = 2;
+const TIMEOUT_EXTEND_MS = 10_000;
 // 語助詞違規門檻：末字語助詞程度 B（0~3）達此值即視為使用語助詞 -> 對方直接 +3
 const FILLER_THRESHOLD = 2;
 // 從內建的兩字詞種子表隨機挑一個（見 src/seedWords.ts）
@@ -37,6 +40,7 @@ interface GameState {
   turnDeadline: number;
   restriction: Restriction | null; // 惡魔模式本回合限制
   usedRestrictions: RestrictionKind[]; // 已出現過的限制種類（循環用完後重置）
+  timeoutQuota: Scores; // 雙方剩餘的超時額度（整場不重置）
   allowedPositions: number[] | null; // 位置限制：目前玩家可放入的位置
   pendingFirstMover?: Role; // result 階段結束後的下一回合先手
   pendingWinner?: Role | null; // result 階段結束後若非 null 即遊戲結束
@@ -202,7 +206,23 @@ export class Game {
       return;
     }
 
-    // 超時：當前玩家直接算輸，對方 +3（不轉為挑戰）
+    // 超時：若當事人尚有超時額度，自動用掉一次、該回合 +10 秒，不計分
+    const timedOut = s.currentPlayer;
+    if ((s.timeoutQuota?.[timedOut] ?? 0) > 0) {
+      s.timeoutQuota[timedOut] -= 1;
+      s.turnDeadline = Date.now() + TIMEOUT_EXTEND_MS;
+      await this.save();
+      await this.ctx.storage.setAlarm(s.turnDeadline);
+      this.broadcast({
+        type: "timeoutExtend",
+        player: timedOut,
+        deadline: s.turnDeadline,
+        timeoutQuota: s.timeoutQuota,
+      });
+      return;
+    }
+
+    // 沒有額度：當前玩家直接算輸，對方 +3（不轉為挑戰）
     const opponent: Role = s.currentPlayer === "p1" ? "p2" : "p1";
     s.scores[opponent] += 3;
     s.status = "settling";
@@ -498,6 +518,7 @@ export class Game {
       turnDeadline: 0,
       restriction: null,
       usedRestrictions: [],
+      timeoutQuota: { p1: TIMEOUT_QUOTA, p2: TIMEOUT_QUOTA },
       allowedPositions: null,
       players,
       ratings,
@@ -558,6 +579,7 @@ export class Game {
         allowedPositions: s.allowedPositions,
         names: this.names(),
         ratings: s.ratings ?? { p1: 1000, p2: 1000 },
+        timeoutQuota: s.timeoutQuota ?? { p1: TIMEOUT_QUOTA, p2: TIMEOUT_QUOTA },
       });
     }
   }
@@ -576,6 +598,7 @@ export class Game {
         lastMove: s.lastMove,
         canChallenge: this.canChallenge(role),
         allowedPositions: s.allowedPositions,
+        timeoutQuota: s.timeoutQuota ?? { p1: TIMEOUT_QUOTA, p2: TIMEOUT_QUOTA },
       });
     }
   }

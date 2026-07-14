@@ -43,9 +43,12 @@ const el = {
   matchingText: $("matching-text"),
   scoreMe: $("score-me"),
   scoreOpp: $("score-opp"),
+  quotaMe: $("quota-me"),
+  quotaOpp: $("quota-opp"),
   turnBadge: $("turn-badge"),
   timerBar: $("timer-bar"),
   timerText: $("timer-text"),
+  timeoutFx: $("timeout-fx"),
   sentence: $("sentence"),
   hint: $("hint"),
   charInput: $("char-input"),
@@ -58,6 +61,8 @@ const el = {
 };
 
 const TURN_MS = 20000;
+// 超時額度：每人每場預設次數（與後端一致，僅供無資料時的顯示上限）
+const TIMEOUT_QUOTA = 2;
 // 語助詞違規門檻：末字語助詞程度 B（0~3）達此值即視為違規（與後端一致）
 const FILLER_THRESHOLD = 2;
 
@@ -67,6 +72,7 @@ const state = {
   names: { p1: "玩家 1", p2: "玩家 2" }, // 雙方顯示名稱
   ratings: { p1: 1000, p2: 1000 }, // 雙方 ELO 積分
   mode: "normal", // "normal" | "devil"
+  timeoutQuota: { p1: TIMEOUT_QUOTA, p2: TIMEOUT_QUOTA }, // 雙方剩餘超時額度
   restriction: null, // 惡魔模式本回合限制
   allowedPositions: null, // 位置限制：可放入位置；null 表示不限
   sentence: [],
@@ -78,6 +84,7 @@ const state = {
   status: "idle",
   timerRAF: null,
   resultTimer: null,
+  timeoutFxTimer: null,
   gameId: null, // 目前對局 id（供斷線重連回同一場）
   reconnectTries: 0, // 斷線後已重連次數
   keepalive: null, // 保活計時器
@@ -425,6 +432,9 @@ function handle(msg) {
     case "update":
       applyRound(msg);
       break;
+    case "timeoutExtend":
+      showTimeoutExtend(msg);
+      break;
     case "judging":
       showJudging(msg);
       break;
@@ -459,9 +469,62 @@ function applyRound(msg) {
   el.scoreMe.textContent = msg.scores[state.you];
   el.scoreOpp.textContent = msg.scores[other(state.you)];
 
+  if (msg.timeoutQuota) state.timeoutQuota = msg.timeoutQuota;
+  renderQuota();
+
   renderSentence(msg.lastMove);
   updateControls();
   startTimer();
+}
+
+// ---------- 超時額度 ----------
+// 以小圓點顯示雙方剩餘的超時額度（已用掉的變暗），保持低調不搶畫面。
+function renderQuota() {
+  const q = state.timeoutQuota || { p1: TIMEOUT_QUOTA, p2: TIMEOUT_QUOTA };
+  renderQuotaFor(el.quotaMe, q[state.you]);
+  renderQuotaFor(el.quotaOpp, q[other(state.you)]);
+}
+
+function renderQuotaFor(node, left) {
+  if (!node) return;
+  const remain = Math.max(0, Math.min(TIMEOUT_QUOTA, left ?? TIMEOUT_QUOTA));
+  let pips = "";
+  for (let i = 0; i < TIMEOUT_QUOTA; i++) {
+    pips += `<span class="pip${i < remain ? "" : " used"}"></span>`;
+  }
+  node.innerHTML = `<span class="quota-ico">⏳</span>${pips}`;
+  node.title = `超時額度：剩 ${remain} 次（超時自動 +10 秒）`;
+}
+
+// 超時用掉一次額度：更新顯示、延長計時，並播放小動畫（不搶畫面）。
+function showTimeoutExtend(msg) {
+  if (msg.timeoutQuota) state.timeoutQuota = msg.timeoutQuota;
+  renderQuota();
+  state.deadline = msg.deadline;
+  if (state.status === "playing" || state.status === "sent") startTimer();
+
+  const mine = msg.player === state.you;
+  // 被用掉額度的那一方，其額度指示器輕微脈動一下
+  const node = mine ? el.quotaMe : el.quotaOpp;
+  if (node) {
+    node.classList.remove("pulse");
+    void node.offsetWidth; // 強制 reflow 以重播動畫
+    node.classList.add("pulse");
+  }
+  // 計時列上方浮出「+10 秒」小提示
+  const fx = el.timeoutFx;
+  if (fx) {
+    fx.textContent = mine ? "超時 +10 秒" : "對手超時 +10 秒";
+    fx.hidden = false;
+    fx.classList.remove("show");
+    void fx.offsetWidth;
+    fx.classList.add("show");
+    clearTimeout(state.timeoutFxTimer);
+    state.timeoutFxTimer = setTimeout(() => {
+      fx.classList.remove("show");
+      fx.hidden = true;
+    }, 1600);
+  }
 }
 
 // ---------- 句子渲染 ----------

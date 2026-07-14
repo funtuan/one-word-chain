@@ -118,6 +118,10 @@
             <li><span class="hi">✍️</span><span>輪流插 <b>一個字</b> 到句子任意位置</span></li>
             <li><span class="hi">⏱️</span><span>每回合限時 <b>20 秒</b></span></li>
             <li>
+              <span class="hi">⏳</span>
+              <span>每場有 <b>2 次超時額度</b>，超時自動用一次 <b>+10 秒</b>；用完後超時對手 +3 分</span>
+            </li>
+            <li>
               <span class="hi">🤔</span>
               <span>句子被接得不合理？按 <span class="pill danger">挑戰</span></span>
             </li>
@@ -185,6 +189,7 @@
             <span id="label-me" class="label">我</span>
             <span id="score-me" class="num">0</span>
             <span id="elo-me" class="elo"></span>
+            <span id="quota-me" class="quota" title="超時額度"></span>
           </div>
           <div class="vs">
             <span id="turn-badge" class="badge">—</span>
@@ -193,6 +198,7 @@
             <span id="label-opp" class="label">對手</span>
             <span id="score-opp" class="num">0</span>
             <span id="elo-opp" class="elo"></span>
+            <span id="quota-opp" class="quota" title="超時額度"></span>
           </div>
         </header>
 
@@ -200,6 +206,7 @@
           <div id="timer-bar" class="timer-bar"></div>
           <span id="timer-text" class="timer-text">20</span>
         </div>
+        <div id="timeout-fx" class="timeout-fx" hidden></div>
 
         <div id="restriction" class="restriction" hidden></div>
 
