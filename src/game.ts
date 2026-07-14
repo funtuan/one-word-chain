@@ -311,7 +311,7 @@ export class Game {
     const lastChar = s.lastMove!.char;
     const lastIndex = s.lastMove!.index;
     const sentence = s.sentence.join("");
-    const { A, B, reason, zhuyinMatch, posViolation, usage } =
+    const { A, B, reason, zhuyinMatch, posViolation, meaningChanged, usage } =
       await judge(
         this.env.OPENROUTER_API_KEY,
         sentence,
@@ -340,7 +340,10 @@ export class Game {
       s.restriction?.kind === "zhuyin" && zhuyinMatch === false;
     const posViolationHit =
       s.restriction?.kind === "pos" && posViolation === true;
-    const violated = fillerViolation || zhuyinViolation || posViolationHit;
+    const meaningViolation =
+      s.restriction?.kind === "meaning" && meaningChanged === false;
+    const violated =
+      fillerViolation || zhuyinViolation || posViolationHit || meaningViolation;
 
     // delta>0 被挑戰方得分、<0 挑戰方得分
     let delta: number;
@@ -384,6 +387,7 @@ export class Game {
       restriction: s.restriction,
       zhuyinMatch,
       posViolation,
+      meaningChanged,
     });
     await this.ctx.storage.setAlarm(Date.now() + RESULT_MS);
   }

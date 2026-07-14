@@ -92,7 +92,7 @@ const state = {
 
 const MODE_DESC = {
   normal: "一般規則，輪流插字接龍。",
-  devil: "每回合隨機抽一個限制：位置、注音韻符或詞性，雙方共用。",
+  devil: "每回合隨機抽一個限制：位置、注音韻符、詞性或意思改變，雙方共用。",
 };
 
 // ---------- 畫面切換 ----------
@@ -577,6 +577,8 @@ function renderRestriction() {
     html = `<span class="r-tag">😈 注音限制</span><span class="r-text">放入的字字韻母須為 ${finals}，不符合對手 +3 分。</span>`;
   } else if (r.kind === "pos" && r.pos) {
     html = `<span class="r-tag">😈 詞性限制</span><span class="r-text">放入的字不可是 <b class="r-final">${escapeHtml(r.pos)}</b>，違規對手 +3 分。</span>`;
+  } else if (r.kind === "meaning") {
+    html = `<span class="r-tag">😈 意思改變限制</span><span class="r-text">放入的字必須讓句子的<b class="r-final">含義改變</b>，沒有改變對手 +3 分。</span>`;
   }
   el.restriction.innerHTML = html;
   el.restriction.hidden = false;
@@ -813,8 +815,9 @@ function scoreItems(msg, timeout) {
   const fillerViolation = msg.B >= FILLER_THRESHOLD;
   const zhuyinViolation = r && r.kind === "zhuyin" && msg.zhuyinMatch === false;
   const posViolationHit = r && r.kind === "pos" && msg.posViolation === true;
+  const meaningViolation = r && r.kind === "meaning" && msg.meaningChanged === false;
 
-  if (fillerViolation || zhuyinViolation || posViolationHit) {
+  if (fillerViolation || zhuyinViolation || posViolationHit || meaningViolation) {
     if (fillerViolation) {
       items.push({ label: `語助詞違規 · ${fillerWord(msg.B)}`, role: challenger, pts: 3 });
     }
@@ -825,6 +828,9 @@ function scoreItems(msg, timeout) {
     if (posViolationHit) {
       const pos = r.pos ? escapeHtml(r.pos) : "";
       items.push({ label: `😈 詞性違規（是${pos}）`, role: challenger, pts: 3, devil: true });
+    }
+    if (meaningViolation) {
+      items.push({ label: `😈 意思改變違規（句意未改變）`, role: challenger, pts: 3, devil: true });
     }
     notes.push("違規直接判對方 +3，其他分數不計");
     return { items, notes };
@@ -843,6 +849,8 @@ function scoreItems(msg, timeout) {
   } else if (r && r.kind === "pos") {
     const pos = r.pos ? escapeHtml(r.pos) : "";
     notes.push(`😈 詞性符合（非${pos}），未加減分`);
+  } else if (r && r.kind === "meaning") {
+    notes.push(`😈 句意有改變，未加減分`);
   } else if (r && r.kind === "position") {
     notes.push(`😈 位置限制不影響計分`);
   }

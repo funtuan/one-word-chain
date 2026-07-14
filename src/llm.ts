@@ -19,6 +19,7 @@ export interface Judgement {
   reason: string;
   zhuyinMatch?: boolean; // zhuyin 限制：被挑戰字是否符合韻符
   posViolation?: boolean; // pos 限制：被挑戰字是否為禁止的詞性（true = 違規）
+  meaningChanged?: boolean; // meaning 限制：被挑戰字是否造成句意改變（false = 違規）
 }
 
 // 單次挑戰的模型用量與花費（累計同一次挑戰內的所有重試）
@@ -61,6 +62,7 @@ export async function judge(
   const chars = Array.from(sentence);
   const zhuyinOn = restriction?.kind === "zhuyin" && !!restriction.finals?.length;
   const posOn = restriction?.kind === "pos" && !!restriction.pos;
+  const meaningOn = restriction?.kind === "meaning";
 
   const jsonFields = ['"A": <整數>', '"B": <整數>', '"reason": "<20字內中文理由>"'];
 
@@ -93,6 +95,13 @@ export async function judge(
       `posViolation = 判斷「最後放入的那個字」（${lastChar}）在整句話中所扮演的詞性是否為「${pos}」，是（違規）則 true、否則 false（布林值）。請依該字在此句中的實際用法判斷，而非它單獨時可能的詞性。`,
     );
     jsonFields.push('"posViolation": <true 或 false>');
+  }
+  if (meaningOn) {
+    lines.push(
+      `本回合有「意思改變限制」：每次放入的字都必須讓整句話的含義產生實質改變。`,
+      `meaningChanged = 比較「有這個字」與「把最後放入的那個字（${lastChar}）拿掉」兩種情況，判斷整句話的含義是否有實質改變。若拿掉這個字後句意幾乎相同（此字可有可無、沒有帶來新的資訊或改變語意），則為 false（違規）；若這個字確實讓句意產生實質改變，則為 true（布林值）。`,
+    );
+    jsonFields.push('"meaningChanged": <true 或 false>');
   }
 
   lines.push(
@@ -228,6 +237,7 @@ function parseJudgement(text: string): Judgement | null {
   const result: Judgement = { A, B, reason };
   if (typeof obj.zhuyinMatch === "boolean") result.zhuyinMatch = obj.zhuyinMatch;
   if (typeof obj.posViolation === "boolean") result.posViolation = obj.posViolation;
+  if (typeof obj.meaningChanged === "boolean") result.meaningChanged = obj.meaningChanged;
   return result;
 }
 

@@ -1,4 +1,4 @@
-// 惡魔模式：每回合隨機抽選一個限制（位置 / 注音 / 詞性），雙方共用。
+// 惡魔模式：每回合隨機抽選一個限制（位置 / 注音 / 詞性 / 意思改變），雙方共用。
 // 見 plan/v1.md。
 
 import type { PosCategory, Restriction, RestrictionKind } from "./types";
@@ -12,7 +12,7 @@ export const ZHUYIN_FINALS = [
 // 詞性限制候選：每回合隨機禁止其中一種詞性
 export const POS_CATEGORIES: PosCategory[] = ["名詞", "動詞", "形容詞"];
 
-export const KINDS: RestrictionKind[] = ["position", "zhuyin", "pos"];
+export const KINDS: RestrictionKind[] = ["position", "zhuyin", "pos", "meaning"];
 
 // 隨機為一回合產生限制；優先挑選前面回合尚未出現過的種類（used 已用過的種類），
 // 三種都出現過後由呼叫端重置循環。

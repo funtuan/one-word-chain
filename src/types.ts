@@ -6,7 +6,7 @@ export type Role = "p1" | "p2";
 export type GameMode = "normal" | "devil";
 
 // 惡魔模式的回合限制種類
-export type RestrictionKind = "position" | "zhuyin" | "pos";
+export type RestrictionKind = "position" | "zhuyin" | "pos" | "meaning";
 
 // 詞性限制：本回合「不可放入」的詞性（三選一）
 export type PosCategory = "名詞" | "動詞" | "形容詞";
@@ -112,6 +112,7 @@ export type ServerMessage =
       restriction: Restriction | null; // 惡魔模式本回合限制（供顯示）
       zhuyinMatch?: boolean; // zhuyin 限制：被挑戰字是否符合韻符
       posViolation?: boolean; // pos 限制：被挑戰字是否為禁止的詞性（true = 違規）
+      meaningChanged?: boolean; // meaning 限制：被挑戰字是否造成句意改變（false = 違規）
     }
   | {
       type: "gameover";
