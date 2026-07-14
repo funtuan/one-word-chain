@@ -24,9 +24,6 @@
       "database_id": "ab54ddde-bcd3-4d3e-8d07-5952d918dd1b"
     }
   ],
-  "ai": {
-    "binding": "AI"
-  },
   "observability": {
     "enabled": true
   }

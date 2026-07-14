@@ -1,16 +1,19 @@
-// 質疑結算：使用 Workers AI (@cf/openai/gpt-oss-120b) 判斷
+// 質疑結算：使用 OpenRouter (xiaomi/mimo-v2.5) 判斷，固定 provider 為 Xiaomi
 //  A: 當前整句話合理與否，-3(非常不合理) 到 3(非常合理)
 //  B: 最後放入的字是否為無意義語助詞，0(完全不是) 到 3(完全是)
 
 import type { Restriction } from "./types";
 import { ZODIAC_MIN_LEN } from "./devil";
 
-const MODEL = "@cf/openai/gpt-oss-120b";
+const MODEL = "xiaomi/mimo-v2.5";
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+// 固定 provider 為 Xiaomi，不允許 fallback 到其他 provider
+const PROVIDER_ROUTING = { order: ["xiaomi"], allow_fallbacks: false };
 
-// Cloudflare Workers AI 計價（USD / token）— 來源：Workers AI Pricing
-// @cf/openai/gpt-oss-120b：輸入 $0.35/M、輸出 $0.75/M（輸出含 reasoning token）
-const PRICE_IN_PER_TOKEN = 0.35 / 1_000_000;
-const PRICE_OUT_PER_TOKEN = 0.75 / 1_000_000;
+// OpenRouter 計價（USD / token）— 來源：openrouter.ai/xiaomi/mimo-v2.5
+// xiaomi/mimo-v2.5：輸入 $0.105/M、輸出 $0.28/M
+const PRICE_IN_PER_TOKEN = 0.105 / 1_000_000;
+const PRICE_OUT_PER_TOKEN = 0.28 / 1_000_000;
 
 export interface Judgement {
   A: number;
@@ -28,7 +31,7 @@ export interface JudgeUsage {
   completionTokens: number;
   totalTokens: number;
   costUsd: number;
-  attempts: number; // 實際呼叫 ai.run 的次數
+  attempts: number; // 實際呼叫 OpenRouter 的次數
   ok: boolean; // 是否成功取得可解析結果
 }
 
@@ -52,7 +55,7 @@ function buildUsage(
 }
 
 export async function judge(
-  ai: Ai,
+  apiKey: string,
   sentence: string,
   lastChar: string,
   lastIndex: number,
@@ -127,15 +130,30 @@ export async function judge(
     let text = "";
     attempts++;
     try {
-      // 用 chat-completions 格式：gpt-oss-120b 只有此格式會回真實 token 用量
-      const res: any = await ai.run(MODEL as any, {
-        messages: [
-          { role: "system", content: instructions },
-          { role: "user", content: input },
-        ],
-        max_tokens: 5000,
-        temperature: 0.2,
-      } as any);
+      // OpenRouter chat-completions 格式（OpenAI 相容），並固定 provider 為 Xiaomi
+      const resp = await fetch(OPENROUTER_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          provider: PROVIDER_ROUTING,
+          messages: [
+            { role: "system", content: instructions },
+            { role: "user", content: input },
+          ],
+          max_tokens: 5000,
+          temperature: 0.2,
+        }),
+      });
+      if (!resp.ok) {
+        // 非 2xx：視為失敗並重試（此次未計費）
+        lastError = true;
+        continue;
+      }
+      const res: any = await resp.json();
       const u = extractUsage(res);
       promptTokens += u.prompt;
       completionTokens += u.completion;
@@ -164,7 +182,7 @@ export async function judge(
     : { A: 0, B: 0, reason: "無法解析 AI 回應，本回合不計分", usage };
 }
 
-// 從 Workers AI 回應取出 token 用量（相容 Responses 與 Chat Completions 兩種欄位命名）
+// 從回應取出 token 用量（相容 Chat Completions 與 Responses 兩種欄位命名）
 function extractUsage(res: any): { prompt: number; completion: number } {
   const u = res?.usage ?? res ?? {};
   const prompt = numOr0(u.prompt_tokens, u.input_tokens);

@@ -49,7 +49,7 @@ interface GameState {
 }
 
 interface Env {
-  AI: Ai;
+  OPENROUTER_API_KEY: string;
   DB: D1Database;
 }
 
@@ -293,7 +293,7 @@ export class Game {
     const sentence = s.sentence.join("");
     const { A, B, reason, zhuyinMatch, zodiacScore, posViolation, usage } =
       await judge(
-        this.env.AI,
+        this.env.OPENROUTER_API_KEY,
         sentence,
         lastChar,
         lastIndex,

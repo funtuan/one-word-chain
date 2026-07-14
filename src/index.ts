@@ -6,7 +6,7 @@ export { Game };
 interface Env {
   LOBBY: DurableObjectNamespace;
   GAME: DurableObjectNamespace;
-  AI: Ai;
+  OPENROUTER_API_KEY: string;
   DB: D1Database;
   ASSETS: Fetcher;
 }

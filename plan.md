@@ -22,4 +22,4 @@
 - 部署在 Cloudflare Woker 包括前端後端
 - 使用 Duable Object 實作對戰與 Websocket 連線機制
 - 質疑結算使用 LLM 進行判斷
-    - AI Model 使用 @cf/openai/gpt-oss-120b
+    - AI Model 使用 OpenRouter 的 xiaomi/mimo-v2.5（固定 provider 為 Xiaomi）
