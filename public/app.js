@@ -435,7 +435,7 @@ function handle(msg) {
       showGameover(msg);
       break;
     case "error":
-      // 送出被伺服器拒絕（例如非中文字）時，回到可操作狀態，讓玩家改字或質疑
+      // 送出被伺服器拒絕（例如非中文字）時，回到可操作狀態，讓玩家改字或挑戰
       if (state.status === "sent") {
         state.status = "playing";
         updateControls();
@@ -566,7 +566,7 @@ function submitInsert() {
 function doChallenge() {
   send({ type: "challenge" });
   el.btnChallenge.disabled = true;
-  el.hint.textContent = "質疑中，AI 裁判評分中…";
+  el.hint.textContent = "挑戰中，AI 裁判評分中…";
 }
 
 // ---------- 計時器 ----------
@@ -585,16 +585,16 @@ function startTimer() {
   tick();
 }
 
-// ---------- 質疑等待畫面 ----------
+// ---------- 挑戰等待畫面 ----------
 function showJudging(msg) {
   state.status = "settling";
   cancelAnimationFrame(state.timerRAF);
   clearInterval(state.resultTimer);
   const who = msg.challenger === state.you ? "你" : "對手";
-  el.ovTitle.textContent = "質疑中";
+  el.ovTitle.textContent = "挑戰中";
   el.ovBody.innerHTML = `
     <div class="spinner" style="margin:12px auto"></div>
-    <div class="judge-reason">${who}發起質疑，AI 裁判評分中…</div>`;
+    <div class="judge-reason">${who}發起挑戰，AI 裁判評分中…</div>`;
   el.ovBtn.style.display = "none";
   el.overlay.classList.add("show");
 }
@@ -621,7 +621,7 @@ function showSettled(msg) {
     infoHtml = `<div class="settle-info">時間到還沒出手</div>`;
   } else {
     const who = sideLabel(msg.challenger);
-    infoHtml = `<div class="settle-info">${escapeHtml(who)}質疑了「${escapeHtml(msg.challengedChar)}」這個字</div>`;
+    infoHtml = `<div class="settle-info">${escapeHtml(who)}挑戰了「${escapeHtml(msg.challengedChar)}」這個字</div>`;
   }
 
   // 計分明細（條列，每項標明歸屬某一方與加分）
@@ -748,7 +748,7 @@ function scoreItems(msg, timeout) {
   const r = msg.restriction;
 
   // 違規判定（語助詞／注音限制／詞性限制任一違反）：
-  // 直接判質疑方 +3，忽略其他分數的加總。
+  // 直接判挑戰方 +3，忽略其他分數的加總。
   const fillerViolation = msg.B >= FILLER_THRESHOLD;
   const zhuyinViolation = r && r.kind === "zhuyin" && msg.zhuyinMatch === false;
   const posViolationHit = r && r.kind === "pos" && msg.posViolation === true;
@@ -769,7 +769,7 @@ function scoreItems(msg, timeout) {
     return { items, notes };
   }
 
-  // 未違規：句子合理度（一律顯示）：正=句子合理→被質疑方，負=不合理→質疑方
+  // 未違規：句子合理度（一律顯示）：正=句子合理→被挑戰方，負=不合理→挑戰方
   const aLabel = `句子合理度 · ${reasonWord(msg.A)}`;
   if (msg.A > 0) items.push({ label: aLabel, role: challenged, pts: msg.A });
   else if (msg.A < 0) items.push({ label: aLabel, role: challenger, pts: -msg.A });
