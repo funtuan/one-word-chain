@@ -161,7 +161,7 @@ export interface RecordAiCostInput {
   now: number;
 }
 
-// 寫入一次質疑的模型花費（每次質疑結算一筆）
+// 寫入一次挑戰的模型花費（每次挑戰結算一筆）
 export async function recordAiCost(
   db: D1Database,
   input: RecordAiCostInput,

@@ -61,7 +61,7 @@ export type ClientMessage =
 // ---- Server -> Client ----
 export type ServerMessage =
   | { type: "waiting" } // 等待對手加入
-  | { type: "judging"; challenger: Role } // 質疑觸發，AI 評分中
+  | { type: "judging"; challenger: Role } // 挑戰觸發，AI 評分中
   | {
       type: "start";
       you: Role;
@@ -90,7 +90,7 @@ export type ServerMessage =
   | {
       type: "settled";
       challenger: Role;
-      challengedChar: string | null; // 被質疑的字；null 表示超時未出手
+      challengedChar: string | null; // 被挑戰的字；null 表示超時未出手
       A: number; // 整句合理度 -3~3
       B: number; // 末字語助詞程度 0~3
       delta: number; // A - B
@@ -102,9 +102,9 @@ export type ServerMessage =
       nextInMs: number; // 幾毫秒後進入下一回合／結束
       final: boolean; // true 表示本回合結束後即分出勝負
       restriction: Restriction | null; // 惡魔模式本回合限制（供顯示）
-      zhuyinMatch?: boolean; // zhuyin 限制：被質疑字是否符合韻符
+      zhuyinMatch?: boolean; // zhuyin 限制：被挑戰字是否符合韻符
       zodiacScore?: number; // zodiac 限制：語氣相符度 -3~3（僅句長超過門檻時）
-      posViolation?: boolean; // pos 限制：被質疑字是否為禁止的詞性（true = 違規）
+      posViolation?: boolean; // pos 限制：被挑戰字是否為禁止的詞性（true = 違規）
     }
   | {
       type: "gameover";

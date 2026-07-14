@@ -202,7 +202,7 @@ export class Game {
       return;
     }
 
-    // 超時：當前玩家直接算輸，對方 +3（不轉為質疑）
+    // 超時：當前玩家直接算輸，對方 +3（不轉為挑戰）
     const opponent: Role = s.currentPlayer === "p1" ? "p2" : "p1";
     s.scores[opponent] += 3;
     s.status = "settling";
@@ -271,7 +271,7 @@ export class Game {
     if (!s.lastMove || s.lastMove.player === role) {
       this.sendTo(this.socketOf(role), {
         type: "error",
-        message: "目前沒有可質疑的字",
+        message: "目前沒有可挑戰的字",
       });
       return;
     }
@@ -300,7 +300,7 @@ export class Game {
         s.restriction,
       );
 
-    // 記錄本次質疑的 AI 花費：不阻塞結算，寫入失敗也不影響對局
+    // 記錄本次挑戰的 AI 花費：不阻塞結算，寫入失敗也不影響對局
     const gameId = this.ctx.id.toString();
     console.log(JSON.stringify({ ev: "judge_cost", game: gameId, ...usage }));
     this.ctx.waitUntil(
@@ -314,7 +314,7 @@ export class Game {
     );
 
     // 違規判定（語助詞／注音限制／詞性限制任一違反）：
-    // 直接判質疑方 +3，忽略 A、星座等其他分數的加總。
+    // 直接判挑戰方 +3，忽略 A、星座等其他分數的加總。
     const fillerViolation = B >= FILLER_THRESHOLD;
     const zhuyinViolation =
       s.restriction?.kind === "zhuyin" && zhuyinMatch === false;
@@ -322,14 +322,14 @@ export class Game {
       s.restriction?.kind === "pos" && posViolation === true;
     const violated = fillerViolation || zhuyinViolation || posViolationHit;
 
-    // delta>0 被質疑方得分、<0 質疑方得分
+    // delta>0 被挑戰方得分、<0 挑戰方得分
     let delta: number;
     if (violated) {
-      // 違規 -> 質疑方（對方）直接 +3
+      // 違規 -> 挑戰方（對方）直接 +3
       delta = -3;
     } else {
       delta = A;
-      // 星座限制：句子超過門檻長度時，語氣相符度直接折入（正=被質疑方、負=質疑方）
+      // 星座限制：句子超過門檻長度時，語氣相符度直接折入（正=被挑戰方、負=挑戰方）
       if (
         s.restriction?.kind === "zodiac" &&
         s.sentence.length > ZODIAC_MIN_LEN &&
@@ -343,11 +343,11 @@ export class Game {
     let awardedPoints = 0;
     const challenged: Role = challenger === "p1" ? "p2" : "p1";
     if (delta > 0) {
-      // 句子合理、非語助詞 -> 質疑錯誤 -> 對方（被質疑方）加分
+      // 句子合理、非語助詞 -> 挑戰錯誤 -> 對方（被挑戰方）加分
       awardedTo = challenged;
       awardedPoints = delta;
     } else if (delta < 0) {
-      // 句子不合理／是語助詞 -> 質疑正確 -> 我方（質疑者）加分
+      // 句子不合理／是語助詞 -> 挑戰正確 -> 我方（挑戰者）加分
       awardedTo = challenger;
       awardedPoints = -delta;
     }

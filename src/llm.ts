@@ -1,4 +1,4 @@
-// 質疑結算：使用 OpenRouter (xiaomi/mimo-v2.5) 判斷，固定 provider 為 Xiaomi
+// 挑戰結算：使用 OpenRouter (xiaomi/mimo-v2.5) 判斷，固定 provider 為 Xiaomi
 //  A: 當前整句話合理與否，-3(非常不合理) 到 3(非常合理)
 //  B: 最後放入的字是否為無意義語助詞，0(完全不是) 到 3(完全是)
 
@@ -19,12 +19,12 @@ export interface Judgement {
   A: number;
   B: number;
   reason: string;
-  zhuyinMatch?: boolean; // zhuyin 限制：被質疑字是否符合韻符
+  zhuyinMatch?: boolean; // zhuyin 限制：被挑戰字是否符合韻符
   zodiacScore?: number; // zodiac 限制：語氣相符度 -3~3
-  posViolation?: boolean; // pos 限制：被質疑字是否為禁止的詞性（true = 違規）
+  posViolation?: boolean; // pos 限制：被挑戰字是否為禁止的詞性（true = 違規）
 }
 
-// 單次質疑的模型用量與花費（累計同一次質疑內的所有重試）
+// 單次挑戰的模型用量與花費（累計同一次挑戰內的所有重試）
 export interface JudgeUsage {
   model: string;
   promptTokens: number;
@@ -74,7 +74,7 @@ export async function judge(
 
   const lines = [
     "你是一個嚴謹的中文一字接龍裁判。",
-    "玩家輪流在句子中放入單一中文字，另一方可質疑句子不合理。",
+    "玩家輪流在句子中放入單一中文字，另一方可挑戰句子不合理。",
     "請針對「當前整句話」以及「最後被放入的那個字」做兩項評分：",
     "A = 這句話目前的內容是否合理，範圍 -3 到 3 的整數（-3 非常不合理、0 普通、3 非常合理）。",
     "評 A 要同時看兩個層面：(1) 語法是否通順；(2) 含義是否合理、符合常理邏輯。就算語法通順，若字詞搭配後的意思荒謬、矛盾或不符常識（例如「太陽在海裡游泳」），也要判為不合理、給低分。",
@@ -122,7 +122,7 @@ export async function judge(
 
   const MAX_ATTEMPTS = 3;
   let lastError = false;
-  // 跨重試累計：同一次質疑可能呼叫模型多次，每次都要計費
+  // 跨重試累計：同一次挑戰可能呼叫模型多次，每次都要計費
   let promptTokens = 0;
   let completionTokens = 0;
   let attempts = 0;
