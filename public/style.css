@@ -813,9 +813,17 @@ button.sm {
   color: var(--text);
 }
 .settle-count {
-  margin-top: 14px;
-  font-size: 13px;
-  color: var(--muted);
+  margin-top: 16px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.settle-count-bar {
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
 }
 
 /* 句子 */
@@ -979,6 +987,69 @@ button.sm {
   font-size: 14px;
   line-height: 1.6;
   margin-top: 8px;
+}
+
+/* 結束畫面：ELO 積分變化 */
+.elo-change {
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--panel-2);
+  border-radius: 12px;
+  text-align: left;
+}
+.elo-head {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.elo-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  font-size: 15px;
+}
+.elo-row .ek {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.elo-row .ev {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.elo-row .eo {
+  color: var(--muted);
+}
+.elo-row .earrow {
+  color: var(--muted);
+  margin: 0 4px;
+}
+.elo-row .ed {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+}
+.elo-row .ed.up {
+  color: var(--accent-2);
+  background: rgba(53, 208, 165, 0.15);
+}
+.elo-row .ed.down {
+  color: var(--danger);
+  background: rgba(255, 107, 107, 0.15);
+}
+.elo-row .ed.same {
+  color: var(--muted);
 }
 .award {
   margin-top: 12px;

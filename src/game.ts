@@ -12,12 +12,15 @@ import type {
 } from "./types";
 import { judge } from "./llm";
 import { computeAllowedPositions, KINDS, pickRestriction, ZODIAC_MIN_LEN } from "./devil";
-import { getPlayer, recordMatch } from "./db";
+import { getPlayer, recordAiCost, recordMatch } from "./db";
+import { eloOutcome } from "./elo";
 import { SEED_WORDS } from "./seedWords";
 
 const TURN_MS = 20_000;
-const RESULT_MS = 10_000; // 結算結果停留時間
+const RESULT_MS = 7_000; // 結算結果停留時間
 const TARGET = 5;
+// 語助詞違規門檻：末字語助詞程度 B（0~3）達此值即視為使用語助詞 -> 對方直接 +3
+const FILLER_THRESHOLD = 2;
 // 從內建的兩字詞種子表隨機挑一個（見 src/seedWords.ts）
 function pickSeed(): string {
   return SEED_WORDS[Math.floor(Math.random() * SEED_WORDS.length)];
@@ -39,6 +42,7 @@ interface GameState {
   pendingWinner?: Role | null; // result 階段結束後若非 null 即遊戲結束
   players: { p1: PlayerIdentity | null; p2: PlayerIdentity | null }; // 雙方身分
   ratings: { p1: number; p2: number }; // 雙方 ELO 積分（開局當下，整局不變）
+  games: { p1: number; p2: number }; // 雙方已玩場數（開局當下，供動態 K / placement）
   recorded?: boolean; // 是否已寫入戰績（避免重複寫入）
 }
 
@@ -145,6 +149,7 @@ export class Game {
       winner,
       scores: s.scores,
       reason: "opponent_left",
+      elo: this.computeElo(winner),
     });
     await this.recordResult(winner, "opponent_left");
   }
@@ -168,6 +173,7 @@ export class Game {
           winner: s.pendingWinner,
           scores: s.scores,
           reason: "score",
+          elo: this.computeElo(s.pendingWinner),
         });
         await this.recordResult(s.pendingWinner, "score");
       } else {
@@ -183,35 +189,30 @@ export class Game {
       return;
     }
 
-    // 超時：由當前玩家自動質疑對方上一手
-    if (s.lastMove && s.lastMove.player !== s.currentPlayer) {
-      await this.settle(s.currentPlayer);
-    } else {
-      // 本回合第一手就超時、沒有可質疑的對象 -> 對方 +1
-      const opponent: Role = s.currentPlayer === "p1" ? "p2" : "p1";
-      s.scores[opponent] += 1;
-      s.status = "settling";
-      await this.save();
-      const final = this.startResultPhase();
-      this.broadcast({
-        type: "settled",
-        challenger: s.currentPlayer,
-        challengedChar: null,
-        A: 0,
-        B: 0,
-        delta: 0,
-        awardedTo: opponent,
-        awardedPoints: 1,
-        reason: "超時未出手，對方得分",
-        sentence: s.sentence,
-        scores: s.scores,
-        nextInMs: RESULT_MS,
-        final,
-        restriction: s.restriction,
-      });
-      await this.save();
-      await this.ctx.storage.setAlarm(Date.now() + RESULT_MS);
-    }
+    // 超時：當前玩家直接算輸，對方 +3（不轉為質疑）
+    const opponent: Role = s.currentPlayer === "p1" ? "p2" : "p1";
+    s.scores[opponent] += 3;
+    s.status = "settling";
+    await this.save();
+    const final = this.startResultPhase();
+    this.broadcast({
+      type: "settled",
+      challenger: s.currentPlayer,
+      challengedChar: null,
+      A: 0,
+      B: 0,
+      delta: 0,
+      awardedTo: opponent,
+      awardedPoints: 3,
+      reason: "超時未出手，對方直接得分",
+      sentence: s.sentence,
+      scores: s.scores,
+      nextInMs: RESULT_MS,
+      final,
+      restriction: s.restriction,
+    });
+    await this.save();
+    await this.ctx.storage.setAlarm(Date.now() + RESULT_MS);
   }
 
   // ---- 動作處理 ----
@@ -277,31 +278,52 @@ export class Game {
     const lastChar = s.lastMove!.char;
     const lastIndex = s.lastMove!.index;
     const sentence = s.sentence.join("");
-    const { A, B, reason, zhuyinMatch, zodiacScore, posViolation } = await judge(
-      this.env.AI,
-      sentence,
-      lastChar,
-      lastIndex,
-      s.restriction,
+    const { A, B, reason, zhuyinMatch, zodiacScore, posViolation, usage } =
+      await judge(
+        this.env.AI,
+        sentence,
+        lastChar,
+        lastIndex,
+        s.restriction,
+      );
+
+    // 記錄本次質疑的 AI 花費：不阻塞結算，寫入失敗也不影響對局
+    const gameId = this.ctx.id.toString();
+    console.log(JSON.stringify({ ev: "judge_cost", game: gameId, ...usage }));
+    this.ctx.waitUntil(
+      recordAiCost(this.env.DB, {
+        gameId,
+        mode: s.mode,
+        restriction: s.restriction?.kind ?? null,
+        usage,
+        now: Date.now(),
+      }).catch((e) => console.error("recordAiCost failed", e)),
     );
 
-    // 惡魔模式加成（皆折入 delta；delta>0 被質疑方得分、<0 質疑方得分）
-    let delta = A - B;
-    // 注音限制：被質疑字不符韻符 -> 質疑方 +3
-    if (s.restriction?.kind === "zhuyin" && zhuyinMatch === false) {
-      delta -= 3;
-    }
-    // 星座限制：句子超過門檻長度時，語氣相符度直接折入（正=被質疑方、負=質疑方）
-    if (
-      s.restriction?.kind === "zodiac" &&
-      s.sentence.length > ZODIAC_MIN_LEN &&
-      typeof zodiacScore === "number"
-    ) {
-      delta += zodiacScore;
-    }
-    // 詞性限制：被質疑字為禁止的詞性 -> 質疑方 +3
-    if (s.restriction?.kind === "pos" && posViolation === true) {
-      delta -= 3;
+    // 違規判定（語助詞／注音限制／詞性限制任一違反）：
+    // 直接判質疑方 +3，忽略 A、星座等其他分數的加總。
+    const fillerViolation = B >= FILLER_THRESHOLD;
+    const zhuyinViolation =
+      s.restriction?.kind === "zhuyin" && zhuyinMatch === false;
+    const posViolationHit =
+      s.restriction?.kind === "pos" && posViolation === true;
+    const violated = fillerViolation || zhuyinViolation || posViolationHit;
+
+    // delta>0 被質疑方得分、<0 質疑方得分
+    let delta: number;
+    if (violated) {
+      // 違規 -> 質疑方（對方）直接 +3
+      delta = -3;
+    } else {
+      delta = A;
+      // 星座限制：句子超過門檻長度時，語氣相符度直接折入（正=被質疑方、負=質疑方）
+      if (
+        s.restriction?.kind === "zodiac" &&
+        s.sentence.length > ZODIAC_MIN_LEN &&
+        typeof zodiacScore === "number"
+      ) {
+        delta += zodiacScore;
+      }
     }
 
     let awardedTo: Role | null = null;
@@ -354,6 +376,29 @@ export class Game {
     return winner !== null;
   }
 
+  // 依開局當下的 ELO 與勝方，算出本場雙方積分變化（供 gameover 顯示）。
+  // 條件與 recordResult 一致：無勝方／缺身分／同一人時回 null（本場不計分）。
+  private computeElo(winner: Role | null): {
+    p1: { before: number; after: number; delta: number };
+    p2: { before: number; after: number; delta: number };
+  } | null {
+    const s = this.state;
+    if (!s) return null;
+    const p1 = s.players?.p1;
+    const p2 = s.players?.p2;
+    if (!winner || !p1?.id || !p2?.id || p1.id === p2.id) return null;
+    const r = s.ratings ?? { p1: 1000, p2: 1000 };
+    const g = s.games ?? { p1: 0, p2: 0 };
+    const e1 = { rating: r.p1, games: g.p1 };
+    const e2 = { rating: r.p2, games: g.p2 };
+    if (winner === "p1") {
+      const o = eloOutcome(e1, e2);
+      return { p1: o.winner, p2: o.loser };
+    }
+    const o = eloOutcome(e2, e1);
+    return { p1: o.loser, p2: o.winner };
+  }
+
   // 遊戲結束時寫入戰績並更新 ELO；只寫一次，D1 失敗不影響遊戲流程
   private async recordResult(
     winner: Role | null,
@@ -389,17 +434,24 @@ export class Game {
     const players =
       (await this.ctx.storage.get<GameState["players"]>("players")) ??
       ({ p1: null, p2: null } as GameState["players"]);
-    // 開局查雙方目前 ELO（未註冊者預設 1000），整局固定顯示
+    // 開局查雙方目前 ELO 與已玩場數（未註冊者預設 1000 / 0），整局固定
     const ratings = { p1: 1000, p2: 1000 };
+    const games = { p1: 0, p2: 0 };
     try {
       const [a, b] = await Promise.all([
         players.p1?.id ? getPlayer(this.env.DB, players.p1.id) : null,
         players.p2?.id ? getPlayer(this.env.DB, players.p2.id) : null,
       ]);
-      if (a) ratings.p1 = a.rating;
-      if (b) ratings.p2 = b.rating;
+      if (a) {
+        ratings.p1 = a.rating;
+        games.p1 = a.games;
+      }
+      if (b) {
+        ratings.p2 = b.rating;
+        games.p2 = b.games;
+      }
     } catch {
-      /* D1 不可用時用預設 1000 */
+      /* D1 不可用時用預設 1000 / 0 */
     }
     this.state = {
       status: "waiting",
@@ -415,6 +467,7 @@ export class Game {
       allowedPositions: null,
       players,
       ratings,
+      games,
     };
     await this.beginRound("p1");
   }

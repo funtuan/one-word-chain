@@ -58,6 +58,8 @@ const el = {
 };
 
 const TURN_MS = 20000;
+// 語助詞違規門檻：末字語助詞程度 B（0~3）達此值即視為違規（與後端一致）
+const FILLER_THRESHOLD = 2;
 
 const state = {
   ws: null,
@@ -621,22 +623,23 @@ function showSettled(msg) {
       ${totalHtml}
     </div>
     ${changeHtml}
-    <div id="ov-count" class="settle-count"></div>
+    <div class="settle-count"><div id="ov-count-bar" class="settle-count-bar"></div></div>
   `;
-  // server 於 nextInMs 後自動推進，這裡只顯示倒數
+  // server 於 nextInMs 後自動推進，這裡以進度條倒數（不顯示文字）
   el.ovBtn.style.display = "none";
   el.overlay.classList.add("show");
 
-  const label = msg.final ? "秒後公布勝負…" : "秒後進入下一回合…";
-  const end = Date.now() + (msg.nextInMs || 10000);
-  const countEl = document.getElementById("ov-count");
-  const upd = () => {
-    const remain = Math.max(0, Math.ceil((end - Date.now()) / 1000));
-    countEl.textContent = remain + " " + label;
-    if (remain <= 0) clearInterval(state.resultTimer);
-  };
-  upd();
-  state.resultTimer = setInterval(upd, 250);
+  const dur = msg.nextInMs || 10000;
+  const bar = document.getElementById("ov-count-bar");
+  // 先滿格，下一幀起以 CSS transition 平滑歸零
+  bar.style.transition = "none";
+  bar.style.width = "100%";
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      bar.style.transition = `width ${dur}ms linear`;
+      bar.style.width = "0%";
+    });
+  });
 }
 
 function showGameover(msg) {
@@ -650,12 +653,22 @@ function showGameover(msg) {
     msg.reason === "opponent_left"
       ? `${oppName()} 已離線`
       : `有人先達到 ${state.target} 分`;
+  let eloHtml = "";
+  if (msg.elo) {
+    eloHtml = `
+      <div class="elo-change">
+        <div class="elo-head">ELO 積分變化</div>
+        ${eloRow(myName(), msg.elo[state.you])}
+        ${eloRow(oppName(), msg.elo[other(state.you)])}
+      </div>`;
+  }
   el.ovBody.innerHTML = `
     <div class="judge-reason">${escapeHtml(reason)}</div>
     <div class="judge-row">
       <div class="judge-item"><span class="k">${escapeHtml(myName())}</span><span class="v">${msg.scores[state.you]}</span></div>
       <div class="judge-item"><span class="k">${escapeHtml(oppName())}</span><span class="v">${msg.scores[other(state.you)]}</span></div>
     </div>
+    ${eloHtml}
   `;
   el.ovBtn.textContent = "再玩一場";
   el.ovBtn.onclick = () => location.reload();
@@ -684,27 +697,40 @@ function scoreItems(msg, timeout) {
 
   const challenger = msg.challenger;
   const challenged = other(challenger);
+  const r = msg.restriction;
 
-  // 句子合理度（一律顯示）：正=句子合理→被質疑方，負=不合理→質疑方
+  // 違規判定（語助詞／注音限制／詞性限制任一違反）：
+  // 直接判質疑方 +3，忽略其他分數的加總。
+  const fillerViolation = msg.B >= FILLER_THRESHOLD;
+  const zhuyinViolation = r && r.kind === "zhuyin" && msg.zhuyinMatch === false;
+  const posViolationHit = r && r.kind === "pos" && msg.posViolation === true;
+
+  if (fillerViolation || zhuyinViolation || posViolationHit) {
+    if (fillerViolation) {
+      items.push({ label: `語助詞違規 · ${fillerWord(msg.B)}`, role: challenger, pts: 3 });
+    }
+    if (zhuyinViolation) {
+      const finals = escapeHtml((r.finals || []).join(" "));
+      items.push({ label: `😈 注音違規（不符 ${finals}）`, role: challenger, pts: 3, devil: true });
+    }
+    if (posViolationHit) {
+      const pos = r.pos ? escapeHtml(r.pos) : "";
+      items.push({ label: `😈 詞性違規（是${pos}）`, role: challenger, pts: 3, devil: true });
+    }
+    notes.push("違規直接判對方 +3，其他分數不計");
+    return { items, notes };
+  }
+
+  // 未違規：句子合理度（一律顯示）：正=句子合理→被質疑方，負=不合理→質疑方
   const aLabel = `句子合理度 · ${reasonWord(msg.A)}`;
   if (msg.A > 0) items.push({ label: aLabel, role: challenged, pts: msg.A });
   else if (msg.A < 0) items.push({ label: aLabel, role: challenger, pts: -msg.A });
   else items.push({ label: aLabel, role: null, pts: 0 });
 
-  // 語助詞（只有扣分時才顯示）：末字是語助詞→質疑方得分
-  if (msg.B > 0) {
-    items.push({ label: `語助詞 · ${fillerWord(msg.B)}`, role: challenger, pts: msg.B });
-  }
-
-  // 惡魔模式限制
-  const r = msg.restriction;
+  // 惡魔模式限制（未違規時的加減分與說明）
   if (r && r.kind === "zhuyin") {
     const finals = escapeHtml((r.finals || []).join(" "));
-    if (msg.zhuyinMatch === false) {
-      items.push({ label: `😈 注音不符（${finals}）`, role: challenger, pts: 3, devil: true });
-    } else if (msg.zhuyinMatch === true) {
-      notes.push(`😈 注音符合（${finals}），未加減分`);
-    }
+    notes.push(`😈 注音符合（${finals}），未加減分`);
   } else if (r && r.kind === "zodiac") {
     const zn = r.zodiac ? escapeHtml(r.zodiac.name) : "";
     const s = msg.zodiacScore;
@@ -719,11 +745,7 @@ function scoreItems(msg, timeout) {
     }
   } else if (r && r.kind === "pos") {
     const pos = r.pos ? escapeHtml(r.pos) : "";
-    if (msg.posViolation === true) {
-      items.push({ label: `😈 詞性違規（是${pos}）`, role: challenger, pts: 3, devil: true });
-    } else if (msg.posViolation === false) {
-      notes.push(`😈 詞性符合（非${pos}），未加減分`);
-    }
+    notes.push(`😈 詞性符合（非${pos}），未加減分`);
   } else if (r && r.kind === "position") {
     notes.push(`😈 位置限制不影響計分`);
   }
@@ -741,6 +763,22 @@ function rowHtml(it) {
     pts = `<span class="sr-pts ${mine ? "me" : "opp"}">${escapeHtml(sideLabel(it.role))} +${it.pts}</span>`;
   }
   return `<div class="sheet-row${it.devil ? " devil" : ""}"><span class="sr-label">${it.label}</span>${pts}</div>`;
+}
+
+// ELO 變化的一列：before → after（+/-delta）
+function eloRow(name, e) {
+  if (!e) return "";
+  const sign = e.delta > 0 ? "+" : "";
+  const cls = e.delta > 0 ? "up" : e.delta < 0 ? "down" : "same";
+  return `<div class="elo-row">
+    <span class="ek">${escapeHtml(name)}</span>
+    <span class="ev">
+      <span class="eo">${e.before}</span>
+      <span class="earrow">→</span>
+      <span class="en">${e.after}</span>
+      <span class="ed ${cls}">${sign}${e.delta}</span>
+    </span>
+  </div>`;
 }
 
 // 分數變化的一列：before → after

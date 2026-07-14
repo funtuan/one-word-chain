@@ -1,6 +1,7 @@
-// D1 存取層：玩家帳號、排行榜、對戰紀錄
+// D1 存取層：玩家帳號、排行榜、對戰紀錄、AI 花費
 import type { GameMode, PlayerIdentity, PlayerStats, Role } from "./types";
-import { eloUpdate } from "./elo";
+import type { JudgeUsage } from "./llm";
+import { eloOutcome, type PlayerElo } from "./elo";
 
 const PLAYER_COLS = "id, name, rating, wins, losses, games";
 
@@ -50,12 +51,13 @@ export async function getLeaderboard(
   return results ?? [];
 }
 
-async function ratingOf(db: D1Database, id: string): Promise<number> {
+// 取玩家目前 rating 與已玩場數（不存在則預設 1000 / 0），供動態 K 結算
+async function eloOf(db: D1Database, id: string): Promise<PlayerElo> {
   const row = await db
-    .prepare("SELECT rating FROM players WHERE id = ?")
+    .prepare("SELECT rating, games FROM players WHERE id = ?")
     .bind(id)
-    .first<{ rating: number }>();
-  return row?.rating ?? 1000;
+    .first<{ rating: number; games: number }>();
+  return { rating: row?.rating ?? 1000, games: row?.games ?? 0 };
 }
 
 export interface RecordMatchInput {
@@ -76,21 +78,21 @@ export async function recordMatch(
 ): Promise<{ ratingDelta: number }> {
   const { p1, p2, winner, scores, mode, reason, matchId, now } = input;
 
-  const [r1, r2] = await Promise.all([ratingOf(db, p1.id), ratingOf(db, p2.id)]);
+  const [e1, e2] = await Promise.all([eloOf(db, p1.id), eloOf(db, p2.id)]);
 
-  let newR1 = r1;
-  let newR2 = r2;
+  let newR1 = e1.rating;
+  let newR2 = e2.rating;
   let ratingDelta = 0;
   if (winner === "p1") {
-    const u = eloUpdate(r1, r2);
-    newR1 = u.winner;
-    newR2 = u.loser;
-    ratingDelta = u.delta;
+    const o = eloOutcome(e1, e2);
+    newR1 = o.winner.after;
+    newR2 = o.loser.after;
+    ratingDelta = o.winner.delta;
   } else if (winner === "p2") {
-    const u = eloUpdate(r2, r1);
-    newR2 = u.winner;
-    newR1 = u.loser;
-    ratingDelta = u.delta;
+    const o = eloOutcome(e2, e1);
+    newR2 = o.winner.after;
+    newR1 = o.loser.after;
+    ratingDelta = o.winner.delta;
   }
 
   const p1Win = winner === "p1" ? 1 : 0;
@@ -147,4 +149,86 @@ export async function recordMatch(
   ]);
 
   return { ratingDelta };
+}
+
+// ---- AI 花費 ----
+
+export interface RecordAiCostInput {
+  gameId: string;
+  mode: GameMode;
+  restriction: string | null; // 惡魔限制種類，無則 null
+  usage: JudgeUsage;
+  now: number;
+}
+
+// 寫入一次質疑的模型花費（每次質疑結算一筆）
+export async function recordAiCost(
+  db: D1Database,
+  input: RecordAiCostInput,
+): Promise<void> {
+  const { gameId, mode, restriction, usage, now } = input;
+  await db
+    .prepare(
+      `INSERT INTO ai_costs
+         (game_id, model, mode, restriction, prompt_tokens, completion_tokens,
+          total_tokens, cost_usd, attempts, ok, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      gameId,
+      usage.model,
+      mode,
+      restriction,
+      usage.promptTokens,
+      usage.completionTokens,
+      usage.totalTokens,
+      usage.costUsd,
+      usage.attempts,
+      usage.ok ? 1 : 0,
+      now,
+    )
+    .run();
+}
+
+export interface CostSummary {
+  judgements: number; // 質疑次數
+  calls: number; // 實際模型呼叫次數（含重試）
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number;
+  avgCostUsd: number; // 每次質疑平均花費
+}
+
+// 花費總覽；sinceMs 可選，只統計該時間點之後
+export async function getCostSummary(
+  db: D1Database,
+  sinceMs?: number,
+): Promise<CostSummary> {
+  const where = sinceMs ? "WHERE created_at >= ?" : "";
+  const stmt = db.prepare(
+    `SELECT
+       COUNT(*)                    AS judgements,
+       COALESCE(SUM(attempts), 0)  AS calls,
+       COALESCE(SUM(prompt_tokens), 0)     AS prompt_tokens,
+       COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+       COALESCE(SUM(cost_usd), 0)  AS cost_usd
+     FROM ai_costs ${where}`,
+  );
+  const row = await (sinceMs ? stmt.bind(sinceMs) : stmt).first<{
+    judgements: number;
+    calls: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    cost_usd: number;
+  }>();
+  const judgements = row?.judgements ?? 0;
+  const costUsd = row?.cost_usd ?? 0;
+  return {
+    judgements,
+    calls: row?.calls ?? 0,
+    promptTokens: row?.prompt_tokens ?? 0,
+    completionTokens: row?.completion_tokens ?? 0,
+    costUsd,
+    avgCostUsd: judgements > 0 ? costUsd / judgements : 0,
+  };
 }

@@ -111,5 +111,10 @@ export type ServerMessage =
       winner: Role | null;
       scores: Scores;
       reason: "score" | "opponent_left";
+      // 本場 ELO 變化（雙方）；null 表示本場未計入積分
+      elo: {
+        p1: { before: number; after: number; delta: number };
+        p2: { before: number; after: number; delta: number };
+      } | null;
     }
   | { type: "error"; message: string };

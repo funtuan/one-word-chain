@@ -30,3 +30,20 @@ CREATE TABLE IF NOT EXISTS matches (
   created_at   INTEGER NOT NULL              -- epoch ms
 );
 CREATE INDEX IF NOT EXISTS idx_matches_created ON matches (created_at DESC);
+
+-- AI 質疑花費紀錄（每次質疑結算寫一筆，含重試累計）
+CREATE TABLE IF NOT EXISTS ai_costs (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_id           TEXT,                          -- Game Durable Object id
+  model             TEXT NOT NULL,                 -- 例：@cf/openai/gpt-oss-120b
+  mode              TEXT,                          -- normal | devil
+  restriction       TEXT,                          -- 惡魔限制種類（zhuyin/zodiac/pos）或 NULL
+  prompt_tokens     INTEGER NOT NULL DEFAULT 0,    -- 累計輸入 token（含所有重試）
+  completion_tokens INTEGER NOT NULL DEFAULT 0,    -- 累計輸出 token（含 reasoning、含所有重試）
+  total_tokens      INTEGER NOT NULL DEFAULT 0,
+  cost_usd          REAL NOT NULL DEFAULT 0,       -- 本次質疑總花費（USD）
+  attempts          INTEGER NOT NULL DEFAULT 1,    -- 實際呼叫模型次數
+  ok                INTEGER NOT NULL DEFAULT 1,    -- 是否成功取得可解析結果
+  created_at        INTEGER NOT NULL               -- epoch ms
+);
+CREATE INDEX IF NOT EXISTS idx_ai_costs_created ON ai_costs (created_at DESC);

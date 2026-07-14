@@ -7,6 +7,11 @@ import { ZODIAC_MIN_LEN } from "./devil";
 
 const MODEL = "@cf/openai/gpt-oss-120b";
 
+// Cloudflare Workers AI 計價（USD / token）— 來源：Workers AI Pricing
+// @cf/openai/gpt-oss-120b：輸入 $0.35/M、輸出 $0.75/M（輸出含 reasoning token）
+const PRICE_IN_PER_TOKEN = 0.35 / 1_000_000;
+const PRICE_OUT_PER_TOKEN = 0.75 / 1_000_000;
+
 export interface Judgement {
   A: number;
   B: number;
@@ -16,13 +21,43 @@ export interface Judgement {
   posViolation?: boolean; // pos 限制：被質疑字是否為禁止的詞性（true = 違規）
 }
 
+// 單次質疑的模型用量與花費（累計同一次質疑內的所有重試）
+export interface JudgeUsage {
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  attempts: number; // 實際呼叫 ai.run 的次數
+  ok: boolean; // 是否成功取得可解析結果
+}
+
+function buildUsage(
+  promptTokens: number,
+  completionTokens: number,
+  attempts: number,
+  ok: boolean,
+): JudgeUsage {
+  const costUsd =
+    promptTokens * PRICE_IN_PER_TOKEN + completionTokens * PRICE_OUT_PER_TOKEN;
+  return {
+    model: MODEL,
+    promptTokens,
+    completionTokens,
+    totalTokens: promptTokens + completionTokens,
+    costUsd,
+    attempts,
+    ok,
+  };
+}
+
 export async function judge(
   ai: Ai,
   sentence: string,
   lastChar: string,
   lastIndex: number,
   restriction?: Restriction | null,
-): Promise<Judgement> {
+): Promise<Judgement & { usage: JudgeUsage }> {
   const chars = Array.from(sentence);
   const zhuyinOn = restriction?.kind === "zhuyin" && !!restriction.finals?.length;
   // 星座限制：僅在句子超過門檻長度時計分
@@ -84,8 +119,13 @@ export async function judge(
 
   const MAX_ATTEMPTS = 3;
   let lastError = false;
+  // 跨重試累計：同一次質疑可能呼叫模型多次，每次都要計費
+  let promptTokens = 0;
+  let completionTokens = 0;
+  let attempts = 0;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     let text = "";
+    attempts++;
     try {
       const res: any = await ai.run(MODEL as any, {
         instructions,
@@ -93,23 +133,47 @@ export async function judge(
         max_tokens: 5000,
         temperature: 0.2,
       } as any);
+      const u = extractUsage(res);
+      promptTokens += u.prompt;
+      completionTokens += u.completion;
       text = extractText(res);
       lastError = false;
     } catch (err) {
-      // AI 呼叫失敗，重試
+      // AI 呼叫失敗，重試（此次通常未計費，token 以 0 計）
       lastError = true;
       continue;
     }
 
     const parsed = parseJudgement(text);
-    if (parsed) return parsed;
+    if (parsed) {
+      return {
+        ...parsed,
+        usage: buildUsage(promptTokens, completionTokens, attempts, true),
+      };
+    }
     // 無法解析，重試
   }
 
-  // 三次都失敗 -> 中性判定（不計分）
+  // 三次都失敗 -> 中性判定（不計分），但仍回報已產生的花費
+  const usage = buildUsage(promptTokens, completionTokens, attempts, false);
   return lastError
-    ? { A: 0, B: 0, reason: "AI 判定失敗，本回合不計分" }
-    : { A: 0, B: 0, reason: "無法解析 AI 回應，本回合不計分" };
+    ? { A: 0, B: 0, reason: "AI 判定失敗，本回合不計分", usage }
+    : { A: 0, B: 0, reason: "無法解析 AI 回應，本回合不計分", usage };
+}
+
+// 從 Workers AI 回應取出 token 用量（相容 Responses 與 Chat Completions 兩種欄位命名）
+function extractUsage(res: any): { prompt: number; completion: number } {
+  const u = res?.usage ?? res ?? {};
+  const prompt = numOr0(u.prompt_tokens, u.input_tokens);
+  const completion = numOr0(u.completion_tokens, u.output_tokens);
+  return { prompt, completion };
+}
+
+function numOr0(...vals: unknown[]): number {
+  for (const v of vals) {
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+  }
+  return 0;
 }
 
 function extractText(res: any): string {
