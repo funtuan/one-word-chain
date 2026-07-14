@@ -9,7 +9,7 @@
   - `Lobby`（`src/index.ts`）：全域單一實例，負責隨機配對兩名玩家到同一房間。
   - `Game`（`src/game.ts`）：每房一個實例，以 WebSocket Hibernation API 管理雙方連線、回合狀態、20 秒計時（DO alarm），並在挑戰時呼叫 LLM。
 - **OpenRouter**：`openai/gpt-oss-20b:nitro` 進行挑戰結算（`src/llm.ts`）。需設定 `OPENROUTER_API_KEY` 秘密。
-- **D1**：`DB` 綁定，儲存玩家帳號與對戰紀錄（`schema.sql`、`src/db.ts`）。
+- **D1**：`DB` 綁定，儲存玩家帳號、對戰紀錄與**遊玩歷史事件**（`schema.sql`、`src/db.ts`）。
 
 ## 帳號與排行榜
 
@@ -30,6 +30,33 @@
 ```bash
 npx wrangler d1 create one-word-chain     # 建立資料庫，將輸出的 database_id 貼到 wrangler.jsonc
 npx wrangler d1 execute one-word-chain --remote --file=./schema.sql   # 建表（本地測試改用 --local）
+```
+
+### 遊玩歷史（供日後分析）
+
+每場遊戲的關鍵動作皆寫入 `game_events` 表（append-only 事件流，見 `schema.sql`）：
+
+- `round_start` 回合開始（種子詞、先手、惡魔限制）
+- `move` 每次接龍（放入的字與位置）
+- `challenge` 挑戰結算（AI 評分 A/B、得分方、違規種類、理由）
+- `timeout_extend` 超時但用掉額度 +10 秒（不計分）／ `timeout` 超時無額度，對方 +3
+- `leave` 有人離開／斷線判勝 ／ `game_over` 整場結束
+
+以 `game_id`（= Game DO id）串連整場；`matches` 亦新增 `game_id` 可 join 摘要。事件寫入採 `ctx.waitUntil` 非阻塞、失敗不影響對局。**既有資料庫**（已建過 `matches`）需跑一次性遷移補上新表與欄位：
+
+```bash
+npx wrangler d1 execute one-word-chain --remote --file=./migrations/0001_game_history.sql
+```
+
+常用分析查詢範例：
+
+```sql
+-- 各違規種類出現次數
+SELECT violation, COUNT(*) FROM game_events WHERE type='challenge' AND violation IS NOT NULL GROUP BY violation;
+-- 每場平均接龍步數
+SELECT AVG(moves) FROM (SELECT game_id, COUNT(*) moves FROM game_events WHERE type='move' GROUP BY game_id);
+-- 結束原因分布（達標 / 超時 / 離開）
+SELECT type, COUNT(*) FROM game_events WHERE type IN ('game_over','timeout','leave') GROUP BY type;
 ```
 
 ## 玩法規則

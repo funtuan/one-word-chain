@@ -12,7 +12,13 @@ import type {
 } from "./types";
 import { judge } from "./llm";
 import { computeAllowedPositions, KINDS, pickRestriction } from "./devil";
-import { getPlayer, recordAiCost, recordMatch } from "./db";
+import {
+  getPlayer,
+  recordAiCost,
+  recordGameEvent,
+  recordMatch,
+  type GameEventInput,
+} from "./db";
 import { eloOutcome } from "./elo";
 import { SEED_WORDS } from "./seedWords";
 
@@ -41,6 +47,8 @@ interface GameState {
   restriction: Restriction | null; // 惡魔模式本回合限制
   usedRestrictions: RestrictionKind[]; // 已出現過的限制種類（循環用完後重置）
   timeoutQuota: Scores; // 雙方剩餘的超時額度（整場不重置）
+  round: number; // 回合編號（1 起，供歷史事件）
+  seq: number; // 場內事件序號（1 起遞增，供歷史事件排序）
   allowedPositions: number[] | null; // 位置限制：目前玩家可放入的位置
   pendingFirstMover?: Role; // result 階段結束後的下一回合先手
   pendingWinner?: Role | null; // result 階段結束後若非 null 即遊戲結束
@@ -169,6 +177,13 @@ export class Game {
     s.status = "over";
     s.finalWinner = winner;
     s.finalReason = "opponent_left";
+    // 歷史：有人離開／斷線，對方判勝
+    this.logEvent({
+      type: "leave",
+      actor: leaver,
+      winner,
+      reason: "opponent_left",
+    });
     await this.save();
     await this.ctx.storage.deleteAlarm();
     this.broadcast(this.buildGameover());
@@ -190,6 +205,12 @@ export class Game {
         s.status = "over";
         s.finalWinner = s.pendingWinner;
         s.finalReason = "score";
+        // 歷史：整場結束（達標得勝）
+        this.logEvent({
+          type: "game_over",
+          winner: s.pendingWinner,
+          reason: "score",
+        });
         await this.save();
         this.broadcast(this.buildGameover());
         await this.recordResult(s.pendingWinner, "score");
@@ -211,6 +232,14 @@ export class Game {
     if ((s.timeoutQuota?.[timedOut] ?? 0) > 0) {
       s.timeoutQuota[timedOut] -= 1;
       s.turnDeadline = Date.now() + TIMEOUT_EXTEND_MS;
+      // 歷史：超時但用掉額度 +10 秒（不計分）
+      this.logEvent({
+        type: "timeout_extend",
+        actor: timedOut,
+        sentence: s.sentence.join(""),
+        restriction: s.restriction?.kind ?? null,
+        detail: { quotaLeft: s.timeoutQuota[timedOut] },
+      });
       await this.save();
       await this.ctx.storage.setAlarm(s.turnDeadline);
       this.broadcast({
@@ -226,6 +255,16 @@ export class Game {
     const opponent: Role = s.currentPlayer === "p1" ? "p2" : "p1";
     s.scores[opponent] += 3;
     s.status = "settling";
+    // 歷史：超時且無額度，對方直接 +3
+    this.logEvent({
+      type: "timeout",
+      actor: timedOut,
+      awardedTo: opponent,
+      awardedPoints: 3,
+      sentence: s.sentence.join(""),
+      restriction: s.restriction?.kind ?? null,
+      reason: "超時未出手，對方直接得分",
+    });
     await this.save();
     const final = this.startResultPhase();
     this.broadcast({
@@ -281,6 +320,14 @@ export class Game {
       s.restriction?.kind === "position"
         ? computeAllowedPositions(s.sentence.length)
         : null;
+    // 歷史：一次接龍
+    this.logEvent({
+      type: "move",
+      actor: role,
+      char: c,
+      posIndex: index,
+      sentence: s.sentence.join(""),
+    });
     await this.save();
     await this.ctx.storage.setAlarm(s.turnDeadline);
     this.broadcastUpdate();
@@ -367,6 +414,33 @@ export class Game {
       awardedPoints = -delta;
     }
     if (awardedTo) s.scores[awardedTo] += awardedPoints;
+
+    // 歷史：挑戰結算（AI 評分、得分、違規判定）
+    const violation = fillerViolation
+      ? "filler"
+      : zhuyinViolation
+        ? "zhuyin"
+        : posViolationHit
+          ? "pos"
+          : meaningViolation
+            ? "meaning"
+            : null;
+    this.logEvent({
+      type: "challenge",
+      actor: challenger,
+      challenged,
+      char: lastChar,
+      sentence: s.sentence.join(""),
+      scoreA: A,
+      scoreB: B,
+      delta,
+      awardedTo,
+      awardedPoints,
+      restriction: s.restriction?.kind ?? null,
+      violation,
+      reason,
+      detail: { zhuyinMatch, posViolation, meaningChanged },
+    });
 
     const final = this.startResultPhase();
     await this.save();
@@ -457,6 +531,41 @@ export class Game {
     return msg;
   }
 
+  // 某一方的玩家 UUID（無身分時回 null）
+  private idOf(role: Role | null | undefined): string | null {
+    if (!role) return null;
+    return this.state?.players?.[role]?.id ?? null;
+  }
+
+  // 寫入一筆遊玩歷史事件：遞增場內序號、帶入 game/回合/模式/比分快照。
+  // 以 waitUntil 非阻塞寫入，D1 不可用或失敗都不影響對局。seq 的遞增會隨呼叫端既有的 save() 持久化。
+  private logEvent(
+    e: Omit<
+      GameEventInput,
+      "gameId" | "seq" | "round" | "mode" | "now" | "p1Score" | "p2Score"
+    >,
+  ) {
+    const s = this.state;
+    if (!s) return;
+    s.seq = (s.seq ?? 0) + 1;
+    const payload: GameEventInput = {
+      ...e,
+      gameId: this.ctx.id.toString(),
+      seq: s.seq,
+      round: s.round ?? 0,
+      mode: s.mode,
+      now: Date.now(),
+      p1Score: s.scores.p1,
+      p2Score: s.scores.p2,
+      actorId: e.actorId ?? this.idOf(e.actor),
+    };
+    this.ctx.waitUntil(
+      recordGameEvent(this.env.DB, payload).catch((err) =>
+        console.error("recordGameEvent failed", err),
+      ),
+    );
+  }
+
   // 遊戲結束時寫入戰績並更新 ELO；只寫一次，D1 失敗不影響遊戲流程
   private async recordResult(
     winner: Role | null,
@@ -473,6 +582,7 @@ export class Game {
     try {
       await recordMatch(this.env.DB, {
         matchId: crypto.randomUUID(),
+        gameId: this.ctx.id.toString(),
         p1,
         p2,
         winner,
@@ -523,6 +633,8 @@ export class Game {
       restriction: null,
       usedRestrictions: [],
       timeoutQuota: { p1: TIMEOUT_QUOTA, p2: TIMEOUT_QUOTA },
+      round: 0,
+      seq: 0,
       allowedPositions: null,
       players,
       ratings,
@@ -543,6 +655,7 @@ export class Game {
   private async beginRound(firstMover: Role) {
     const s = this.state!;
     const seed = pickSeed();
+    s.round = (s.round ?? 0) + 1;
     s.sentence = [...seed];
     s.lastMove = null;
     s.firstMover = firstMover;
@@ -563,6 +676,16 @@ export class Game {
       s.restriction?.kind === "position"
         ? computeAllowedPositions(s.sentence.length)
         : null;
+    // 歷史：回合開始（種子詞、先手、惡魔限制）
+    this.logEvent({
+      type: "round_start",
+      actor: firstMover,
+      sentence: seed,
+      restriction: s.restriction?.kind ?? null,
+      detail: s.restriction
+        ? { finals: s.restriction.finals, pos: s.restriction.pos }
+        : null,
+    });
     await this.save();
     await this.ctx.storage.setAlarm(s.turnDeadline);
 

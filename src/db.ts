@@ -1,4 +1,4 @@
-// D1 存取層：玩家帳號、排行榜、對戰紀錄、AI 花費
+// D1 存取層：玩家帳號、排行榜、對戰紀錄、AI 花費、遊玩歷史事件
 import type { GameMode, PlayerIdentity, PlayerStats, Role } from "./types";
 import type { JudgeUsage } from "./llm";
 import { eloOutcome, type PlayerElo } from "./elo";
@@ -62,6 +62,7 @@ async function eloOf(db: D1Database, id: string): Promise<PlayerElo> {
 
 export interface RecordMatchInput {
   matchId: string;
+  gameId: string; // Game Durable Object id，供 join game_events
   p1: PlayerIdentity;
   p2: PlayerIdentity;
   winner: Role | null; // 勝方；理論上結算一定有勝方
@@ -76,7 +77,7 @@ export async function recordMatch(
   db: D1Database,
   input: RecordMatchInput,
 ): Promise<{ ratingDelta: number }> {
-  const { p1, p2, winner, scores, mode, reason, matchId, now } = input;
+  const { p1, p2, winner, scores, mode, reason, matchId, gameId, now } = input;
 
   const [e1, e2] = await Promise.all([eloOf(db, p1.id), eloOf(db, p2.id)]);
 
@@ -129,11 +130,12 @@ export async function recordMatch(
     db
       .prepare(
         `INSERT INTO matches
-           (id, p1_id, p2_id, p1_name, p2_name, winner_id, p1_score, p2_score, mode, reason, rating_delta, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, game_id, p1_id, p2_id, p1_name, p2_name, winner_id, p1_score, p2_score, mode, reason, rating_delta, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         matchId,
+        gameId,
         p1.id,
         p2.id,
         p1.name,
@@ -186,6 +188,89 @@ export async function recordAiCost(
       usage.attempts,
       usage.ok ? 1 : 0,
       now,
+    )
+    .run();
+}
+
+// ---- 遊玩歷史事件 ----
+
+export type GameEventType =
+  | "round_start"
+  | "move"
+  | "challenge"
+  | "timeout_extend"
+  | "timeout"
+  | "leave"
+  | "game_over";
+
+// 一筆歷史事件；除 gameId/seq/round/type/mode/now 外皆選填，依事件種類帶入。
+export interface GameEventInput {
+  gameId: string;
+  seq: number;
+  round: number;
+  type: GameEventType;
+  mode: GameMode;
+  now: number;
+  actor?: Role | null;
+  actorId?: string | null;
+  char?: string | null;
+  posIndex?: number | null;
+  sentence?: string | null;
+  challenged?: Role | null;
+  scoreA?: number | null;
+  scoreB?: number | null;
+  delta?: number | null;
+  awardedTo?: Role | null;
+  awardedPoints?: number | null;
+  restriction?: string | null;
+  violation?: string | null;
+  reason?: string | null;
+  p1Score?: number;
+  p2Score?: number;
+  winner?: Role | null;
+  detail?: Record<string, unknown> | null;
+}
+
+// 寫入一筆遊玩歷史事件（append-only）。由呼叫端以 waitUntil 包住，寫入失敗不影響對局。
+export async function recordGameEvent(
+  db: D1Database,
+  e: GameEventInput,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO game_events
+         (game_id, seq, round, type, mode, actor, actor_id,
+          char, pos_index, sentence,
+          challenged, score_a, score_b, delta, awarded_to, awarded_pts,
+          restriction, violation, reason,
+          p1_score, p2_score, winner, detail, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      e.gameId,
+      e.seq,
+      e.round,
+      e.type,
+      e.mode,
+      e.actor ?? null,
+      e.actorId ?? null,
+      e.char ?? null,
+      e.posIndex ?? null,
+      e.sentence ?? null,
+      e.challenged ?? null,
+      e.scoreA ?? null,
+      e.scoreB ?? null,
+      e.delta ?? null,
+      e.awardedTo ?? null,
+      e.awardedPoints ?? null,
+      e.restriction ?? null,
+      e.violation ?? null,
+      e.reason ?? null,
+      e.p1Score ?? 0,
+      e.p2Score ?? 0,
+      e.winner ?? null,
+      e.detail ? JSON.stringify(e.detail) : null,
+      e.now,
     )
     .run();
 }
