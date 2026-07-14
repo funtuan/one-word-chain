@@ -8,6 +8,7 @@
   --text: #eef1ff;
   --muted: #9aa3c7;
   --slot: #3a4270;
+  --devil: #ff7ac6;
 }
 
 * {
@@ -87,6 +88,39 @@ body {
   color: var(--muted);
   max-width: 300px;
   line-height: 1.6;
+}
+
+/* 模式切換 */
+.mode-switch {
+  display: flex;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--panel-2);
+  border-radius: 16px;
+  padding: 6px;
+  margin-top: 6px;
+}
+.mode-opt {
+  background: transparent;
+  color: var(--muted);
+  border-radius: 12px;
+  padding: 12px 18px;
+  font-weight: 700;
+}
+.mode-opt.active {
+  background: linear-gradient(135deg, var(--accent), #8a6cff);
+  color: #fff;
+}
+.mode-opt[data-mode="devil"].active {
+  background: linear-gradient(135deg, var(--devil), #b06cff);
+}
+.mode-desc {
+  color: var(--muted);
+  font-size: 13px;
+  max-width: 300px;
+  line-height: 1.6;
+  min-height: 38px;
+  margin: 0;
 }
 
 /* 配對頁 */
@@ -357,6 +391,179 @@ button:disabled {
   color: var(--muted);
 }
 
+/* 惡魔模式限制橫幅 */
+.restriction {
+  margin: 6px 4px 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(255, 122, 198, 0.1);
+  border: 1px solid rgba(255, 122, 198, 0.35);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.restriction .r-tag {
+  display: inline-block;
+  font-weight: 800;
+  color: var(--devil);
+  margin-right: 6px;
+}
+.restriction .r-text {
+  color: var(--text);
+}
+.restriction .r-final {
+  display: inline-block;
+  min-width: 22px;
+  text-align: center;
+  padding: 1px 6px;
+  margin: 0 1px;
+  border-radius: 6px;
+  background: rgba(255, 122, 198, 0.25);
+  color: var(--devil);
+  font-size: 15px;
+}
+
+/* 結算：AI 評語置頂 */
+.ai-verdict {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  text-align: left;
+  background: var(--panel-2);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.ai-tag {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--bg);
+  background: var(--accent);
+  border-radius: 999px;
+  padding: 3px 8px;
+  margin-top: 1px;
+}
+.ai-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.settle-info {
+  font-size: 14px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+/* 結算：計分明細 */
+.score-sheet,
+.score-change {
+  text-align: left;
+  border: 1px solid var(--panel-2);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.score-sheet {
+  background: rgba(0, 0, 0, 0.15);
+}
+.score-change {
+  margin-top: 12px;
+}
+.sheet-head {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.sheet-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 15px;
+}
+.sheet-row:first-of-type {
+  border-top: none;
+}
+.sr-label {
+  color: var(--text);
+}
+.sheet-row.devil .sr-label {
+  color: var(--devil);
+}
+.sr-pts {
+  font-weight: 800;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.sr-pts.me {
+  color: var(--accent);
+}
+.sr-pts.opp {
+  color: var(--accent-2);
+}
+.sr-pts.zero {
+  color: var(--muted);
+  font-weight: 600;
+}
+.sheet-note {
+  font-size: 12px;
+  color: var(--muted);
+  padding-top: 6px;
+}
+.sheet-total {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--panel-2);
+  font-size: 17px;
+  font-weight: 800;
+  text-align: right;
+}
+.sheet-total.me {
+  color: var(--accent);
+}
+.sheet-total.opp {
+  color: var(--accent-2);
+}
+.sheet-total.tie {
+  color: var(--muted);
+}
+
+/* 結算：分數變化 */
+.change-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+  font-size: 15px;
+}
+.change-row .ck {
+  color: var(--muted);
+}
+.change-row.changed .ck {
+  color: var(--text);
+}
+.cv {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.cv-old {
+  color: var(--muted);
+}
+.cv-new {
+  color: var(--accent-2);
+}
+.cv.same {
+  color: var(--text);
+}
+.settle-count {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 /* 句子 */
 .sentence {
   flex: 1;
@@ -400,6 +607,16 @@ button:disabled {
   transform: translate(-50%, -50%);
   background: var(--slot);
   border-radius: 2px;
+}
+.slot.locked {
+  width: 6px;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 3px,
+    rgba(255, 122, 198, 0.18) 3px,
+    rgba(255, 122, 198, 0.18) 6px
+  );
 }
 .slot.selected {
   width: 22px;

@@ -2,6 +2,18 @@
 
 export type Role = "p1" | "p2";
 
+// 遊戲模式：普通 / 惡魔（每回合隨機限制）
+export type GameMode = "normal" | "devil";
+
+// 惡魔模式的回合限制種類
+export type RestrictionKind = "position" | "zhuyin" | "zodiac";
+
+export interface Restriction {
+  kind: RestrictionKind;
+  finals?: string[]; // zhuyin：本回合允許的 3 個韻符
+  zodiac?: { name: string; desc: string }; // zodiac：本回合星座
+}
+
 export type GameStatus =
   | "waiting"
   | "playing"
@@ -16,7 +28,7 @@ export interface Scores {
 
 export interface LastMove {
   player: Role;
-  index: number; // 插入位置（插入後該字在句中的索引）
+  index: number; // 放入位置（放入後該字在句中的索引）
   char: string;
 }
 
@@ -39,6 +51,9 @@ export type ServerMessage =
       deadline: number; // epoch ms
       target: number;
       canChallenge: boolean;
+      mode: GameMode;
+      restriction: Restriction | null; // 惡魔模式本回合限制
+      allowedPositions: number[] | null; // 位置限制：目前可放入的位置；null 表示不限
     }
   | {
       type: "update";
@@ -48,6 +63,7 @@ export type ServerMessage =
       deadline: number;
       lastMove: LastMove | null;
       canChallenge: boolean;
+      allowedPositions: number[] | null; // 位置限制：下一位玩家可放入的位置
     }
   | {
       type: "settled";
@@ -63,6 +79,9 @@ export type ServerMessage =
       scores: Scores;
       nextInMs: number; // 幾毫秒後進入下一回合／結束
       final: boolean; // true 表示本回合結束後即分出勝負
+      restriction: Restriction | null; // 惡魔模式本回合限制（供顯示）
+      zhuyinMatch?: boolean; // zhuyin 限制：被質疑字是否符合韻符
+      zodiacScore?: number; // zodiac 限制：語氣相符度 -3~3（僅句長超過門檻時）
     }
   | {
       type: "gameover";

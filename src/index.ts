@@ -39,9 +39,10 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // 配對
+    // 配對（依模式分開排隊，惡魔模式只與惡魔模式配對）
     if (url.pathname === "/api/matchmake") {
-      const id = env.LOBBY.idFromName("global");
+      const mode = url.searchParams.get("mode") === "devil" ? "devil" : "normal";
+      const id = env.LOBBY.idFromName(`lobby:${mode}`);
       const stub = env.LOBBY.get(id);
       return stub.fetch(request);
     }

@@ -1,12 +1,16 @@
 import type {
   ClientMessage,
+  GameMode,
   GameStatus,
   LastMove,
+  Restriction,
+  RestrictionKind,
   Role,
   Scores,
   ServerMessage,
 } from "./types";
 import { judge } from "./llm";
+import { computeAllowedPositions, pickRestriction, ZODIAC_MIN_LEN } from "./devil";
 import { SEED_WORDS } from "./seedWords";
 
 const TURN_MS = 20_000;
@@ -19,12 +23,16 @@ function pickSeed(): string {
 
 interface GameState {
   status: GameStatus;
+  mode: GameMode;
   sentence: string[];
   scores: Scores;
   currentPlayer: Role;
   firstMover: Role;
   lastMove: LastMove | null;
   turnDeadline: number;
+  restriction: Restriction | null; // 惡魔模式本回合限制
+  usedRestrictions: RestrictionKind[]; // 已出現過的限制種類（循環用完後重置）
+  allowedPositions: number[] | null; // 位置限制：目前玩家可放入的位置
   pendingFirstMover?: Role; // result 階段結束後的下一回合先手
   pendingWinner?: Role | null; // result 階段結束後若非 null 即遊戲結束
 }
@@ -55,6 +63,10 @@ export class Game {
     }
 
     const role: Role = existing.length === 0 ? "p1" : "p2";
+    const mode: GameMode =
+      new URL(request.url).searchParams.get("mode") === "devil"
+        ? "devil"
+        : "normal";
 
     const pair = new WebSocketPair();
     const client = pair[0];
@@ -63,10 +75,12 @@ export class Game {
     this.ctx.acceptWebSocket(server, [role]);
     server.serializeAttachment({ role });
 
-    // 第二位玩家加入 -> 開局
+    // 第二位玩家加入 -> 開局（模式以第一位玩家（房主）為準）
     if (existing.length === 1) {
       await this.startGame();
     } else {
+      // 第一位玩家：記住此房的模式
+      await this.ctx.storage.put("mode", mode);
       this.sendTo(server, { type: "waiting" });
     }
 
@@ -173,6 +187,7 @@ export class Game {
         scores: s.scores,
         nextInMs: RESULT_MS,
         final,
+        restriction: s.restriction,
       });
       await this.save();
       await this.ctx.storage.setAlarm(Date.now() + RESULT_MS);
@@ -191,7 +206,15 @@ export class Game {
       return;
     }
     if (!Number.isInteger(index) || index < 0 || index > s.sentence.length) {
-      this.sendTo(this.socketOf(role), { type: "error", message: "插入位置無效" });
+      this.sendTo(this.socketOf(role), { type: "error", message: "放入位置無效" });
+      return;
+    }
+    // 位置限制：只能插在本回合開放的位置
+    if (s.allowedPositions && !s.allowedPositions.includes(index)) {
+      this.sendTo(this.socketOf(role), {
+        type: "error",
+        message: "此位置本回合不開放",
+      });
       return;
     }
 
@@ -199,6 +222,11 @@ export class Game {
     s.lastMove = { player: role, index, char: c };
     s.currentPlayer = role === "p1" ? "p2" : "p1";
     s.turnDeadline = Date.now() + TURN_MS;
+    // 位置限制：為下一位玩家重新開放一半位置
+    s.allowedPositions =
+      s.restriction?.kind === "position"
+        ? computeAllowedPositions(s.sentence.length)
+        : null;
     await this.save();
     await this.ctx.storage.setAlarm(s.turnDeadline);
     this.broadcastUpdate();
@@ -229,14 +257,29 @@ export class Game {
     const lastChar = s.lastMove!.char;
     const lastIndex = s.lastMove!.index;
     const sentence = s.sentence.join("");
-    const { A, B, reason } = await judge(
+    const { A, B, reason, zhuyinMatch, zodiacScore } = await judge(
       this.env.AI,
       sentence,
       lastChar,
       lastIndex,
+      s.restriction,
     );
 
-    const delta = A - B;
+    // 惡魔模式加成（皆折入 delta；delta>0 被質疑方得分、<0 質疑方得分）
+    let delta = A - B;
+    // 注音限制：被質疑字不符韻符 -> 質疑方 +3
+    if (s.restriction?.kind === "zhuyin" && zhuyinMatch === false) {
+      delta -= 3;
+    }
+    // 星座限制：句子超過門檻長度時，語氣相符度直接折入（正=被質疑方、負=質疑方）
+    if (
+      s.restriction?.kind === "zodiac" &&
+      s.sentence.length > ZODIAC_MIN_LEN &&
+      typeof zodiacScore === "number"
+    ) {
+      delta += zodiacScore;
+    }
+
     let awardedTo: Role | null = null;
     let awardedPoints = 0;
     const challenged: Role = challenger === "p1" ? "p2" : "p1";
@@ -267,6 +310,9 @@ export class Game {
       scores: s.scores,
       nextInMs: RESULT_MS,
       final,
+      restriction: s.restriction,
+      zhuyinMatch,
+      zodiacScore,
     });
     await this.ctx.storage.setAlarm(Date.now() + RESULT_MS);
   }
@@ -285,14 +331,19 @@ export class Game {
 
   // ---- 開局 / 開回合 ----
   private async startGame() {
+    const mode = (await this.ctx.storage.get<GameMode>("mode")) ?? "normal";
     this.state = {
       status: "waiting",
+      mode,
       sentence: [],
       scores: { p1: 0, p2: 0 },
       currentPlayer: "p1",
       firstMover: "p1",
       lastMove: null,
       turnDeadline: 0,
+      restriction: null,
+      usedRestrictions: [],
+      allowedPositions: null,
     };
     await this.beginRound("p1");
   }
@@ -306,6 +357,20 @@ export class Game {
     s.currentPlayer = firstMover;
     s.status = "playing";
     s.turnDeadline = Date.now() + TURN_MS;
+    // 惡魔模式：每回合抽一個限制，優先挑前面回合沒出現過的種類
+    if (s.mode === "devil") {
+      if (!s.usedRestrictions || s.usedRestrictions.length >= 3) {
+        s.usedRestrictions = [];
+      }
+      s.restriction = pickRestriction(s.usedRestrictions);
+      s.usedRestrictions.push(s.restriction.kind);
+    } else {
+      s.restriction = null;
+    }
+    s.allowedPositions =
+      s.restriction?.kind === "position"
+        ? computeAllowedPositions(s.sentence.length)
+        : null;
     await this.save();
     await this.ctx.storage.setAlarm(s.turnDeadline);
 
@@ -321,6 +386,9 @@ export class Game {
         deadline: s.turnDeadline,
         target: TARGET,
         canChallenge: this.canChallenge(role),
+        mode: s.mode,
+        restriction: s.restriction,
+        allowedPositions: s.allowedPositions,
       });
     }
   }
@@ -338,6 +406,7 @@ export class Game {
         deadline: s.turnDeadline,
         lastMove: s.lastMove,
         canChallenge: this.canChallenge(role),
+        allowedPositions: s.allowedPositions,
       });
     }
   }

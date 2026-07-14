@@ -1,6 +1,9 @@
 // 質疑結算：使用 Workers AI (@cf/openai/gpt-oss-120b) 判斷
 //  A: 當前整句話合理與否，-3(非常不合理) 到 3(非常合理)
-//  B: 最後插入的字是否為無意義語助詞，0(完全不是) 到 3(完全是)
+//  B: 最後放入的字是否為無意義語助詞，0(完全不是) 到 3(完全是)
+
+import type { Restriction } from "./types";
+import { ZODIAC_MIN_LEN } from "./devil";
 
 const MODEL = "@cf/openai/gpt-oss-120b";
 
@@ -8,6 +11,8 @@ export interface Judgement {
   A: number;
   B: number;
   reason: string;
+  zhuyinMatch?: boolean; // zhuyin 限制：被質疑字是否符合韻符
+  zodiacScore?: number; // zodiac 限制：語氣相符度 -3~3
 }
 
 export async function judge(
@@ -15,42 +20,86 @@ export async function judge(
   sentence: string,
   lastChar: string,
   lastIndex: number,
+  restriction?: Restriction | null,
 ): Promise<Judgement> {
-  const instructions = [
+  const chars = Array.from(sentence);
+  const zhuyinOn = restriction?.kind === "zhuyin" && !!restriction.finals?.length;
+  // 星座限制：僅在句子超過門檻長度時計分
+  const zodiacOn =
+    restriction?.kind === "zodiac" &&
+    !!restriction.zodiac &&
+    chars.length > ZODIAC_MIN_LEN;
+
+  const jsonFields = ['"A": <整數>', '"B": <整數>', '"reason": "<20字內中文理由>"'];
+
+  const lines = [
     "你是一個嚴謹的中文一字接龍裁判。",
-    "玩家輪流在句子中插入單一中文字，另一方可質疑句子不合理。",
-    "請針對「當前整句話」以及「最後被插入的那個字」做兩項評分：",
+    "玩家輪流在句子中放入單一中文字，另一方可質疑句子不合理。",
+    "請針對「當前整句話」以及「最後被放入的那個字」做兩項評分：",
     "A = 這句話目前的內容是否合理，範圍 -3 到 3 的整數（-3 非常不合理、0 普通、3 非常合理）。",
     "評 A 要同時看兩個層面：(1) 語法是否通順；(2) 含義是否合理、符合常理邏輯。就算語法通順，若字詞搭配後的意思荒謬、矛盾或不符常識（例如「太陽在海裡游泳」），也要判為不合理、給低分。",
     "重要：句子是玩家一次一個字慢慢接出來的，本來就可能還沒接完。請「不要」因為主詞、受詞或語法不完整而扣分，只需判斷現有的字彼此搭配起來，語法與含義是否都合理、說得通。",
-    "B = 最後插入的那個字在整句話中是否只是無意義的語助詞（例如 的、了、啊、呢、嗎、吧、喔），範圍 0 到 3 的整數（0 完全不是語助詞、3 完全是無意義語助詞）。",
-    "整句話中，最後插入的那個字會被【】包住標示位置。【】本身不是句子內容，判斷語法與含義時請忽略這對符號。",
-    '只回傳 JSON，格式為 {"A": <整數>, "B": <整數>, "reason": "<20字內中文理由>"}，不要有其他文字。',
-  ].join("\n");
+    "B = 最後放入的那個字在整句話中是否只是無意義的語助詞（例如 的、了、啊、呢、嗎、吧、喔），範圍 0 到 3 的整數（0 完全不是語助詞、3 完全是無意義語助詞）。",
+    "整句話中，最後放入的那個字會被【】包住標示位置。【】本身不是句子內容，判斷語法與含義時請忽略這對符號。",
+  ];
 
-  const chars = Array.from(sentence);
+  if (zhuyinOn) {
+    const finals = restriction!.finals!.join("、");
+    lines.push(
+      `本回合有「注音韻符限制」：允許的韻符為 ${finals}。`,
+      `zhuyinMatch = 判斷「最後放入的那個字」（${lastChar}）的注音韻母（結尾韻符）是否為上述其中之一，是則 true、否則 false（布林值）。`,
+    );
+    jsonFields.push('"zhuyinMatch": <true 或 false>');
+  }
+  if (zodiacOn) {
+    const z = restriction!.zodiac!;
+    lines.push(
+      `本回合有「星座語氣限制」：整句話必須像「${z.name}」會講出來的話。${z.name}特質：${z.desc}`,
+      `zodiacScore = 判斷當前整句話的語氣、內容有多符合${z.name}的個性，範圍 -3 到 3 的整數（-3 完全不像、0 普通、3 非常像）。`,
+    );
+    jsonFields.push('"zodiacScore": <整數>');
+  }
+
+  lines.push(
+    "以台灣常見語句用法判斷，回應理由使用繁體中文",
+    `只回傳 JSON，格式為 {${jsonFields.join("、")}}，不要有其他文字。`,
+  );
+  const instructions = lines.join("\n");
+
   const markedSentence = chars
     .map((ch, i) => (i === lastIndex ? `【${ch}】` : ch))
     .join("");
 
-  const input = `整句話：「${markedSentence}」\n最後插入的字：「${lastChar}」`;
+  const input = `整句話：「${markedSentence}」\n最後放入的字：「${lastChar}」`;
 
-  let text = "";
-  try {
-    const res: any = await ai.run(MODEL as any, {
-      instructions,
-      input,
-      max_tokens: 5000,
-      temperature: 0.2,
-    } as any);
-    text = extractText(res);
-  } catch (err) {
-    // AI 呼叫失敗 -> 中性判定（不計分）
-    return { A: 0, B: 0, reason: "AI 判定失敗，本回合不計分" };
+  const MAX_ATTEMPTS = 3;
+  let lastError = false;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let text = "";
+    try {
+      const res: any = await ai.run(MODEL as any, {
+        instructions,
+        input,
+        max_tokens: 5000,
+        temperature: 0.2,
+      } as any);
+      text = extractText(res);
+      lastError = false;
+    } catch (err) {
+      // AI 呼叫失敗，重試
+      lastError = true;
+      continue;
+    }
+
+    const parsed = parseJudgement(text);
+    if (parsed) return parsed;
+    // 無法解析，重試
   }
 
-  const parsed = parseJudgement(text);
-  return parsed ?? { A: 0, B: 0, reason: "無法解析 AI 回應，本回合不計分" };
+  // 三次都失敗 -> 中性判定（不計分）
+  return lastError
+    ? { A: 0, B: 0, reason: "AI 判定失敗，本回合不計分" }
+    : { A: 0, B: 0, reason: "無法解析 AI 回應，本回合不計分" };
 }
 
 function extractText(res: any): string {
@@ -92,7 +141,11 @@ function parseJudgement(text: string): Judgement | null {
   if (A === null || B === null) return null;
   const reason =
     typeof obj.reason === "string" ? obj.reason.slice(0, 60) : "";
-  return { A, B, reason };
+  const result: Judgement = { A, B, reason };
+  if (typeof obj.zhuyinMatch === "boolean") result.zhuyinMatch = obj.zhuyinMatch;
+  const zs = clampInt(obj.zodiacScore, -3, 3);
+  if (zs !== null && obj.zodiacScore != null) result.zodiacScore = zs;
+  return result;
 }
 
 function clampInt(v: unknown, min: number, max: number): number | null {

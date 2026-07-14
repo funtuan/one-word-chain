@@ -15,6 +15,15 @@
       <section id="screen-start" class="screen active">
         <h1>一字接龍</h1>
         <p class="tagline">輪流插字，覺得不合理就質疑！先得 5 分獲勝。</p>
+        <div class="mode-switch" role="group" aria-label="遊戲模式">
+          <button id="mode-normal" class="mode-opt active" data-mode="normal">
+            😇 普通模式
+          </button>
+          <button id="mode-devil" class="mode-opt" data-mode="devil">
+            😈 惡魔模式
+          </button>
+        </div>
+        <p id="mode-desc" class="mode-desc">一般規則，輪流插字接龍。</p>
         <button id="btn-play" class="primary">開始配對</button>
         <button id="btn-help" class="ghost">遊戲說明</button>
         <a
@@ -108,6 +117,8 @@
           <span id="timer-text" class="timer-text">20</span>
         </div>
 
+        <div id="restriction" class="restriction" hidden></div>
+
         <div id="sentence" class="sentence"></div>
 
         <div id="hint" class="hint"></div>
@@ -122,7 +133,7 @@
             autocomplete="off"
             placeholder="字"
           />
-          <button id="btn-submit" class="primary" disabled>插入</button>
+          <button id="btn-submit" class="primary" disabled>放入</button>
           <button id="btn-challenge" class="challenge" disabled>質疑</button>
         </div>
       </section>
