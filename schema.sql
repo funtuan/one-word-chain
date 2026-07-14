@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS ai_costs (
   game_id           TEXT,                          -- Game Durable Object id
   model             TEXT NOT NULL,                 -- 例：@cf/openai/gpt-oss-120b
   mode              TEXT,                          -- normal | devil
-  restriction       TEXT,                          -- 惡魔限制種類（zhuyin/zodiac/pos）或 NULL
+  restriction       TEXT,                          -- 惡魔限制種類（zhuyin/pos）或 NULL
   prompt_tokens     INTEGER NOT NULL DEFAULT 0,    -- 累計輸入 token（含所有重試）
   completion_tokens INTEGER NOT NULL DEFAULT 0,    -- 累計輸出 token（含 reasoning、含所有重試）
   total_tokens      INTEGER NOT NULL DEFAULT 0,

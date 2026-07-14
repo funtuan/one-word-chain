@@ -11,7 +11,7 @@ import type {
   ServerMessage,
 } from "./types";
 import { judge } from "./llm";
-import { computeAllowedPositions, KINDS, pickRestriction, ZODIAC_MIN_LEN } from "./devil";
+import { computeAllowedPositions, KINDS, pickRestriction } from "./devil";
 import { getPlayer, recordAiCost, recordMatch } from "./db";
 import { eloOutcome } from "./elo";
 import { SEED_WORDS } from "./seedWords";
@@ -291,7 +291,7 @@ export class Game {
     const lastChar = s.lastMove!.char;
     const lastIndex = s.lastMove!.index;
     const sentence = s.sentence.join("");
-    const { A, B, reason, zhuyinMatch, zodiacScore, posViolation, usage } =
+    const { A, B, reason, zhuyinMatch, posViolation, usage } =
       await judge(
         this.env.OPENROUTER_API_KEY,
         sentence,
@@ -314,7 +314,7 @@ export class Game {
     );
 
     // 違規判定（語助詞／注音限制／詞性限制任一違反）：
-    // 直接判挑戰方 +3，忽略 A、星座等其他分數的加總。
+    // 直接判挑戰方 +3，忽略 A 等其他分數的加總。
     const fillerViolation = B >= FILLER_THRESHOLD;
     const zhuyinViolation =
       s.restriction?.kind === "zhuyin" && zhuyinMatch === false;
@@ -329,14 +329,6 @@ export class Game {
       delta = -3;
     } else {
       delta = A;
-      // 星座限制：句子超過門檻長度時，語氣相符度直接折入（正=被挑戰方、負=挑戰方）
-      if (
-        s.restriction?.kind === "zodiac" &&
-        s.sentence.length > ZODIAC_MIN_LEN &&
-        typeof zodiacScore === "number"
-      ) {
-        delta += zodiacScore;
-      }
     }
 
     let awardedTo: Role | null = null;
@@ -371,7 +363,6 @@ export class Game {
       final,
       restriction: s.restriction,
       zhuyinMatch,
-      zodiacScore,
       posViolation,
     });
     await this.ctx.storage.setAlarm(Date.now() + RESULT_MS);

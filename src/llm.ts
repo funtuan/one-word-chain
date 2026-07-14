@@ -3,7 +3,6 @@
 //  B: 最後放入的字是否為無意義語助詞，0(完全不是) 到 3(完全是)
 
 import type { Restriction } from "./types";
-import { ZODIAC_MIN_LEN } from "./devil";
 
 const MODEL = "xiaomi/mimo-v2.5";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -20,7 +19,6 @@ export interface Judgement {
   B: number;
   reason: string;
   zhuyinMatch?: boolean; // zhuyin 限制：被挑戰字是否符合韻符
-  zodiacScore?: number; // zodiac 限制：語氣相符度 -3~3
   posViolation?: boolean; // pos 限制：被挑戰字是否為禁止的詞性（true = 違規）
 }
 
@@ -63,11 +61,6 @@ export async function judge(
 ): Promise<Judgement & { usage: JudgeUsage }> {
   const chars = Array.from(sentence);
   const zhuyinOn = restriction?.kind === "zhuyin" && !!restriction.finals?.length;
-  // 星座限制：僅在句子超過門檻長度時計分
-  const zodiacOn =
-    restriction?.kind === "zodiac" &&
-    !!restriction.zodiac &&
-    chars.length > ZODIAC_MIN_LEN;
   const posOn = restriction?.kind === "pos" && !!restriction.pos;
 
   const jsonFields = ['"A": <整數>', '"B": <整數>', '"reason": "<20字內中文理由>"'];
@@ -90,14 +83,6 @@ export async function judge(
       `zhuyinMatch = 判斷「最後放入的那個字」（${lastChar}）的注音韻母（結尾韻符）是否為上述其中之一，是則 true、否則 false（布林值）。`,
     );
     jsonFields.push('"zhuyinMatch": <true 或 false>');
-  }
-  if (zodiacOn) {
-    const z = restriction!.zodiac!;
-    lines.push(
-      `本回合有「星座語氣限制」：整句話必須像「${z.name}」會講出來的話。${z.name}特質：${z.desc}`,
-      `zodiacScore = 判斷當前整句話的語氣、內容有多符合${z.name}的個性，範圍 -3 到 3 的整數（-3 完全不像、0 普通、3 非常像）。`,
-    );
-    jsonFields.push('"zodiacScore": <整數>');
   }
   if (posOn) {
     const pos = restriction!.pos!;
@@ -241,8 +226,6 @@ function parseJudgement(text: string): Judgement | null {
     typeof obj.reason === "string" ? obj.reason.slice(0, 60) : "";
   const result: Judgement = { A, B, reason };
   if (typeof obj.zhuyinMatch === "boolean") result.zhuyinMatch = obj.zhuyinMatch;
-  const zs = clampInt(obj.zodiacScore, -3, 3);
-  if (zs !== null && obj.zodiacScore != null) result.zodiacScore = zs;
   if (typeof obj.posViolation === "boolean") result.posViolation = obj.posViolation;
   return result;
 }
