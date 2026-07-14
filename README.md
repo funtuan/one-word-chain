@@ -8,7 +8,7 @@
 - **Durable Objects**：
   - `Lobby`（`src/index.ts`）：全域單一實例，負責隨機配對兩名玩家到同一房間。
   - `Game`（`src/game.ts`）：每房一個實例，以 WebSocket Hibernation API 管理雙方連線、回合狀態、20 秒計時（DO alarm），並在挑戰時呼叫 LLM。
-- **OpenRouter**：`openai/gpt-oss-safeguard-20b:nitro` 進行挑戰結算（`src/llm.ts`）。需設定 `OPENROUTER_API_KEY` 秘密。
+- **OpenRouter**：`openai/gpt-oss-20b:nitro` 進行挑戰結算（`src/llm.ts`）。需設定 `OPENROUTER_API_KEY` 秘密。
 - **D1**：`DB` 綁定，儲存玩家帳號與對戰紀錄（`schema.sql`、`src/db.ts`）。
 
 ## 帳號與排行榜

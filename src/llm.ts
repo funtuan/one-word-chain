@@ -1,15 +1,15 @@
-// 挑戰結算：使用 OpenRouter (openai/gpt-oss-safeguard-20b) 判斷
+// 挑戰結算：使用 OpenRouter (openai/gpt-oss-20b) 判斷
 //  A: 當前整句話合理與否，-3(非常不合理) 到 3(非常合理)
 //  B: 最後放入的字是否為無意義語助詞，0(完全不是) 到 3(完全是)
 
 import type { Restriction } from "./types";
 
 // :nitro 變體：依 throughput 排序 provider，優先選擇最快的服務
-const MODEL = "openai/gpt-oss-safeguard-20b:nitro";
+const MODEL = "openai/gpt-oss-20b:nitro";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-// OpenRouter 計價（USD / token）— 來源：openrouter.ai/openai/gpt-oss-safeguard-20b
-// openai/gpt-oss-safeguard-20b：輸入 $0.075/M、輸出 $0.30/M
+// OpenRouter 計價（USD / token）— 來源：openrouter.ai/openai/gpt-oss-20b
+// openai/gpt-oss-20b：輸入 $0.075/M、輸出 $0.30/M
 const PRICE_IN_PER_TOKEN = 0.075 / 1_000_000;
 const PRICE_OUT_PER_TOKEN = 0.30 / 1_000_000;
 
