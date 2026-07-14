@@ -1,5 +1,5 @@
 import { Game } from "./game";
-import { getCostSummary, getLeaderboard, getPlayer, registerPlayer } from "./db";
+import { getLeaderboard, getPlayer, registerPlayer } from "./db";
 
 export { Game };
 
@@ -75,17 +75,6 @@ export default {
       if (!id) return Response.json({ error: "id required" }, { status: 400 });
       const player = await getPlayer(env.DB, id);
       return Response.json({ player });
-    }
-
-    // AI 花費總覽；?sinceHours=24 可只看近 N 小時
-    if (url.pathname === "/api/costs") {
-      const sinceHours = Number(url.searchParams.get("sinceHours"));
-      const sinceMs =
-        Number.isFinite(sinceHours) && sinceHours > 0
-          ? Date.now() - sinceHours * 3_600_000
-          : undefined;
-      const summary = await getCostSummary(env.DB, sinceMs);
-      return Response.json(summary);
     }
 
     // 配對（依模式分開排隊，惡魔模式只與惡魔模式配對）

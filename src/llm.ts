@@ -127,9 +127,12 @@ export async function judge(
     let text = "";
     attempts++;
     try {
+      // 用 chat-completions 格式：gpt-oss-120b 只有此格式會回真實 token 用量
       const res: any = await ai.run(MODEL as any, {
-        instructions,
-        input,
+        messages: [
+          { role: "system", content: instructions },
+          { role: "user", content: input },
+        ],
         max_tokens: 5000,
         temperature: 0.2,
       } as any);
@@ -179,6 +182,9 @@ function numOr0(...vals: unknown[]): number {
 function extractText(res: any): string {
   if (!res) return "";
   if (typeof res === "string") return res;
+  // Chat Completions 風格：choices[0].message.content
+  const choice = res.choices?.[0]?.message?.content;
+  if (typeof choice === "string" && choice) return choice;
   if (typeof res.response === "string") return res.response;
   // Responses API 風格：output 陣列
   if (Array.isArray(res.output)) {
