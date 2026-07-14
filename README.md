@@ -8,7 +8,7 @@
 - **Durable Objects**：
   - `Lobby`（`src/index.ts`）：全域單一實例，負責隨機配對兩名玩家到同一房間。
   - `Game`（`src/game.ts`）：每房一個實例，以 WebSocket Hibernation API 管理雙方連線、回合狀態、20 秒計時（DO alarm），並在質疑時呼叫 LLM。
-- **Workers AI**：`@cf/openai/gpt-oss-120b` 進行質疑結算（`src/llm.ts`）。
+- **OpenRouter**：`xiaomi/mimo-v2.5`（固定 provider 為 Xiaomi）進行質疑結算（`src/llm.ts`）。需設定 `OPENROUTER_API_KEY` 秘密。
 - **D1**：`DB` 綁定，儲存玩家帳號與對戰紀錄（`schema.sql`、`src/db.ts`）。
 
 ## 帳號與排行榜
@@ -52,16 +52,18 @@ npm run typecheck        # 型別檢查
 npm run dev              # 本地開發（http://localhost:8787）
 ```
 
-⚠️ **本地開發的 AI 限制**：`wrangler dev`（純 local）不支援 AI 綁定，質疑一律走「不計分」fallback，適合測試對戰流程。要實測 AI 評分需登入 Cloudflare 後使用：
+⚠️ **本地開發需要 OpenRouter 金鑰**：質疑結算會呼叫 OpenRouter API，請在專案根目錄建立 `.dev.vars`（已被 `.gitignore` 忽略）：
 
-```bash
-npx wrangler login
-npx wrangler dev --remote   # AI 綁定連到真實 Workers AI
 ```
+OPENROUTER_API_KEY=sk-or-...
+```
+
+未設定金鑰時，質疑會走「不計分」fallback（仍可測試對戰流程）。
 
 部署：
 
 ```bash
+npx wrangler secret put OPENROUTER_API_KEY   # 設定正式環境金鑰（僅需一次）
 npm run deploy
 ```
 
