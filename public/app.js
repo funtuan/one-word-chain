@@ -78,8 +78,6 @@ const TURN_MS = 20000;
 const POPUP_MS = 3000;
 // 超時額度：每人每場預設次數（與後端一致，僅供無資料時的顯示上限）
 const TIMEOUT_QUOTA = 2;
-// 語助詞違規門檻：末字語助詞程度 B（0~3）達此值即視為違規（與後端一致）
-const FILLER_THRESHOLD = 2;
 
 const state = {
   ws: null,
@@ -788,7 +786,11 @@ function renderSentence(lastMove) {
     // 位置限制：不在開放清單的位置變成鎖住、不可點
     const locked = allowed !== null && !allowed.includes(index);
     if (locked) slot.classList.add("locked");
-    if (myTurn && !locked && !state.buffering) {
+    // 只要輪到我且位置未鎖就綁定點擊事件；緩衝（限制提示彈窗）期間由 selectSlot
+    // 的 buffering 判斷擋下、且彈窗遮罩本身也會吃掉點擊。若在此處以 buffering 為條件
+    // 而不綁事件，回合中新增限制走的渲染順序（先設 buffering 再渲染）會讓空格永遠沒綁
+    // 事件，提示消失後也無法點擊。
+    if (myTurn && !locked) {
       slot.classList.add("tappable");
       if (state.selectedIndex === index) slot.classList.add("selected");
       slot.addEventListener("click", () => selectSlot(index));
@@ -901,6 +903,9 @@ function hideRestrictionToast() {
     state.buffering = false;
     // 解除阻擋：恢復操作與正常計時
     if (state.status === "playing") {
+      // 重繪句子：回合中新增限制時，renderSentence 曾在 buffering=true 下執行，
+      // 導致空格未綁定點擊事件；解除阻擋後需重繪才能讓當前玩家點格放字。
+      renderSentence(state.lastMove);
       updateControls();
       startTimer();
     }
@@ -1337,7 +1342,7 @@ function scoreItems(msg, timeout) {
 
   // 違規判定（語助詞／任一生效的惡魔限制被違反）：
   // 直接判挑戰方 +3（多項違規也只計一次），忽略其他分數的加總。
-  const fillerViolation = msg.B >= FILLER_THRESHOLD;
+  const fillerViolation = msg.isFiller === true;
   const zhuyinViolation = !!zhuyinR && msg.zhuyinMatch === false;
   const posViolationHit = !!posR && msg.posViolation === true;
   const meaningViolation = !!meaningR && msg.meaningChanged === false;
@@ -1350,7 +1355,7 @@ function scoreItems(msg, timeout) {
       scored = true;
     };
     if (fillerViolation) {
-      pushViolation(`語助詞違規 · ${fillerWord(msg.B)}`, false);
+      pushViolation(`語助詞違規 · 無意義語助詞`, false);
     }
     if (zhuyinViolation) {
       const finals = escapeHtml((zhuyinR.finals || []).join(" "));
@@ -1372,9 +1377,9 @@ function scoreItems(msg, timeout) {
   }
 
   // 未違規：句子合理度（一律顯示）：正=句子合理→被挑戰方，負=不合理→挑戰方
-  const aLabel = `句子合理度 · ${reasonWord(msg.A)}`;
-  if (msg.A > 0) items.push({ label: aLabel, role: challenged, pts: msg.A });
-  else if (msg.A < 0) items.push({ label: aLabel, role: challenger, pts: -msg.A });
+  const aLabel = `句子合理度 · ${reasonWord(msg.sentenceScore)}`;
+  if (msg.sentenceScore > 0) items.push({ label: aLabel, role: challenged, pts: msg.sentenceScore });
+  else if (msg.sentenceScore < 0) items.push({ label: aLabel, role: challenger, pts: -msg.sentenceScore });
   else items.push({ label: aLabel, role: null, pts: 0 });
 
   // 惡魔模式限制（未違規時的說明，逐一列出目前生效的限制）
@@ -1440,12 +1445,6 @@ function reasonWord(a) {
   if (a === 0) return "普通";
   if (a === -1) return "有點怪";
   return "很不合理";
-}
-function fillerWord(b) {
-  if (b <= 0) return "有意義";
-  if (b === 1) return "有點多餘";
-  if (b === 2) return "像語助詞";
-  return "根本是語助詞";
 }
 function other(role) {
   return role === "p1" ? "p2" : "p1";

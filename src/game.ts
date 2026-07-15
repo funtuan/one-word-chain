@@ -34,8 +34,6 @@ const TARGET = 5;
 // 超時額度：每人每場預設 2 次，超時時自動用掉一次換取 +10 秒（整場不重置）
 const TIMEOUT_QUOTA = 2;
 const TIMEOUT_EXTEND_MS = 10_000;
-// 語助詞違規門檻：末字語助詞程度 B（0~3）達此值即視為使用語助詞 -> 對方直接 +3
-const FILLER_THRESHOLD = 2;
 // 從內建的兩字詞種子表隨機挑一個（見 src/seedWords.ts）
 function pickSeed(): string {
   return SEED_WORDS[Math.floor(Math.random() * SEED_WORDS.length)];
@@ -278,8 +276,8 @@ export class Game {
       challenger: s.currentPlayer,
       challengedChar: null,
       challengedIndex: null,
-      A: 0,
-      B: 0,
+      sentenceScore: 0,
+      isFiller: false,
       delta: 0,
       awardedTo: opponent,
       awardedPoints: 3,
@@ -387,8 +385,15 @@ export class Game {
     const lastChar = s.lastMove!.char;
     const lastIndex = s.lastMove!.index;
     const sentence = s.sentence.join("");
-    const { A, B, reason, zhuyinMatch, posViolation, meaningChanged, usage } =
-      await judge(
+    const {
+      sentenceScore,
+      isFiller,
+      reason,
+      zhuyinMatch,
+      posViolation,
+      meaningChanged,
+      usage,
+    } = await judge(
         this.env.OPENROUTER_API_KEY,
         sentence,
         lastChar,
@@ -410,8 +415,8 @@ export class Game {
     );
 
     // 違規判定（語助詞／注音限制／詞性限制任一違反）：
-    // 直接判挑戰方 +3，忽略 A 等其他分數的加總。
-    const fillerViolation = B >= FILLER_THRESHOLD;
+    // 直接判挑戰方 +3，忽略句子評分等其他分數的加總。
+    const fillerViolation = isFiller === true;
     const zhuyinViolation =
       s.restrictions.some((r) => r.kind === "zhuyin") && zhuyinMatch === false;
     const posViolationHit =
@@ -428,7 +433,7 @@ export class Game {
       // 違規 -> 挑戰方（對方）直接 +3
       delta = -3;
     } else {
-      delta = A;
+      delta = sentenceScore;
     }
 
     let awardedTo: Role | null = null;
@@ -461,8 +466,8 @@ export class Game {
       challenged,
       char: lastChar,
       sentence: s.sentence.join(""),
-      scoreA: A,
-      scoreB: B,
+      scoreA: sentenceScore,
+      scoreB: isFiller ? 1 : 0,
       delta,
       awardedTo,
       awardedPoints,
@@ -479,8 +484,8 @@ export class Game {
       challenger,
       challengedChar: lastChar,
       challengedIndex: lastIndex,
-      A,
-      B,
+      sentenceScore,
+      isFiller,
       delta,
       awardedTo,
       awardedPoints,
