@@ -18,11 +18,22 @@ export class Lobby {
     this.ctx = ctx;
   }
 
-  async fetch(_request: Request): Promise<Response> {
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
     const WAIT_TTL = 30_000;
     const waiting = await this.ctx.storage.get<{ gameId: string; ts: number }>(
       "waiting",
     );
+
+    // 取消配對：玩家在配對畫面按「取消」時清掉自己建立的等待房，
+    // 避免下一位配對者被丟進一個已被放棄的空房而永遠等不到人。
+    if (url.pathname === "/api/cancel") {
+      const gameId = url.searchParams.get("gameId");
+      if (waiting && gameId && waiting.gameId === gameId) {
+        await this.ctx.storage.delete("waiting");
+      }
+      return Response.json({ ok: true });
+    }
 
     if (waiting && Date.now() - waiting.ts < WAIT_TTL) {
       // 有人在等 -> 配對，清掉等待狀態
@@ -77,8 +88,8 @@ export default {
       return Response.json({ player });
     }
 
-    // 配對（依模式分開排隊，惡魔模式只與惡魔模式配對）
-    if (url.pathname === "/api/matchmake") {
+    // 配對／取消配對（依模式分開排隊，惡魔模式只與惡魔模式配對）
+    if (url.pathname === "/api/matchmake" || url.pathname === "/api/cancel") {
       const mode = url.searchParams.get("mode") === "devil" ? "devil" : "normal";
       const id = env.LOBBY.idFromName(`lobby:${mode}`);
       const stub = env.LOBBY.get(id);

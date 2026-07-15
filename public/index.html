@@ -88,6 +88,9 @@
           </button>
         </div>
         <p id="mode-desc" class="mode-desc">一般規則，輪流一字接龍。</p>
+        <button id="btn-devil-help" class="link-btn devil-help" hidden>
+          😈 看惡魔模式怎麼玩 ›
+        </button>
         <button id="btn-play" class="primary">開始配對</button>
         <button id="btn-leaderboard" class="ghost">🏆 排行榜</button>
         <button id="btn-help" class="ghost">遊戲說明</button>
@@ -156,6 +159,44 @@
             </div>
             <p class="help-note">越不合理、越明顯的廢字，得分越多。</p>
           </div>
+
+          <div id="help-devil" class="help-block devil-block">
+            <h3>😈 惡魔模式</h3>
+            <p class="help-note dm-intro">
+              在普通規則之上，每回合多了額外「限制」。<b>回合開局 1 個</b>，之後每多接
+              <b>5 個字</b> 再疊加 1 個，可同時生效多個。違反限制 →
+              <b>對手直接 +3 分</b>。
+            </p>
+            <div class="criteria">
+              <div class="crit">
+                <div class="crit-name">📍 位置限制</div>
+                <div class="crit-desc">
+                  每回合只開放 <b>一半</b> 的放入位置（最多 5 個），鎖住的位置不能放字。
+                </div>
+              </div>
+              <div class="crit">
+                <div class="crit-name">🔤 注音限制</div>
+                <div class="crit-desc">
+                  放入的字，其 <b>韻母</b> 必須是指定注音（例：ㄢ、ㄤ）。不符合對手 +3。
+                </div>
+              </div>
+              <div class="crit">
+                <div class="crit-name">🏷️ 詞性限制</div>
+                <div class="crit-desc">
+                  放入的字 <b>不可</b> 是指定詞性（例：動詞、名詞）。違反對手 +3。
+                </div>
+              </div>
+              <div class="crit">
+                <div class="crit-name">🔀 意思改變限制</div>
+                <div class="crit-desc">
+                  放入的字必須讓句子 <b>含義改變</b>，沒有改變對手 +3。
+                </div>
+              </div>
+            </div>
+            <p class="help-note">
+              每回合開局與新增限制時，畫面會跳出提示（這段時間不佔用你的 20 秒）。
+            </p>
+          </div>
         </div>
         <button id="btn-help-play" class="primary">開始配對</button>
       </section>
@@ -180,6 +221,12 @@
       <section id="screen-matching" class="screen">
         <div class="spinner"></div>
         <p id="matching-text">配對中…</p>
+        <p id="matching-sub" class="matching-sub" hidden></p>
+        <div id="matching-invite" class="matching-invite" hidden>
+          <p>目前沒有其他玩家在線，邀請朋友一起開一局吧！</p>
+          <button id="btn-copy-link" class="ghost sm">複製遊戲連結</button>
+        </div>
+        <button id="btn-cancel-match" class="ghost">取消配對</button>
       </section>
 
       <!-- 對戰 -->
@@ -238,6 +285,7 @@
           <h2 id="ov-title"></h2>
           <div id="ov-body"></div>
           <button id="ov-btn" class="primary"></button>
+          <button id="ov-btn2" class="ghost" hidden></button>
         </div>
       </div>
     </div>

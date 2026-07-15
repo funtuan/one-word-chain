@@ -35,6 +35,12 @@ const el = {
   btnHelpPlay: $("btn-help-play"),
   modeOpts: document.querySelectorAll(".mode-opt"),
   modeDesc: $("mode-desc"),
+  btnDevilHelp: $("btn-devil-help"),
+  helpDevil: $("help-devil"),
+  matchingSub: $("matching-sub"),
+  matchingInvite: $("matching-invite"),
+  btnCopyLink: $("btn-copy-link"),
+  btnCancelMatch: $("btn-cancel-match"),
   labelMe: $("label-me"),
   labelOpp: $("label-opp"),
   eloMe: $("elo-me"),
@@ -59,6 +65,7 @@ const el = {
   ovTitle: $("ov-title"),
   ovBody: $("ov-body"),
   ovBtn: $("ov-btn"),
+  ovBtn2: $("ov-btn2"),
 };
 
 const TURN_MS = 20000;
@@ -93,7 +100,13 @@ const state = {
   gameId: null, // 目前對局 id（供斷線重連回同一場）
   reconnectTries: 0, // 斷線後已重連次數
   keepalive: null, // 保活計時器
+  matching: false, // 是否正在（新的）配對等待中
+  waitStart: 0, // 開始等待對手的時間戳
+  waitTimer: null, // 配對等待秒數更新計時器
 };
+
+// 等待超過此秒數仍未配到人 -> 顯示「邀請朋友」提示
+const INVITE_AFTER_MS = 15000;
 
 const MODE_DESC = {
   normal: "一般規則，輪流一字接龍",
@@ -346,15 +359,84 @@ async function play() {
     return;
   }
   show("matching");
-  el.matchingText.textContent = "配對中…";
+  state.matching = true;
+  resetMatchingUi();
+  const modeLabel = state.mode === "devil" ? "😈 惡魔模式" : "😇 普通模式";
+  el.matchingText.textContent = `${modeLabel} · 配對中…`;
   try {
     const res = await fetch(`/api/matchmake?mode=${state.mode}`);
     const { gameId } = await res.json();
     connect(gameId);
   } catch (e) {
+    state.matching = false;
     el.matchingText.textContent = "配對失敗，請重試";
     setTimeout(() => show("start"), 1500);
   }
+}
+
+// 重置配對畫面的附屬元件（秒數、邀請提示）到初始狀態
+function resetMatchingUi() {
+  stopWaitTimer();
+  el.matchingSub.hidden = true;
+  el.matchingSub.textContent = "";
+  el.matchingInvite.hidden = true;
+  el.btnCancelMatch.hidden = false;
+}
+
+// 開始更新「已等待 N 秒」；等待夠久顯示邀請朋友提示
+function startWaitTimer() {
+  stopWaitTimer();
+  state.waitStart = Date.now();
+  el.matchingSub.hidden = false;
+  const tick = () => {
+    const sec = Math.floor((Date.now() - state.waitStart) / 1000);
+    el.matchingSub.textContent = `已等待 ${sec} 秒…`;
+    if (Date.now() - state.waitStart >= INVITE_AFTER_MS) {
+      el.matchingInvite.hidden = false;
+    }
+  };
+  tick();
+  state.waitTimer = setInterval(tick, 1000);
+}
+
+function stopWaitTimer() {
+  clearInterval(state.waitTimer);
+  state.waitTimer = null;
+}
+
+// 取消配對：關閉連線、通知 Lobby 清掉自己建立的等待房，回到開始頁
+function cancelMatch() {
+  const gameId = state.gameId;
+  const mode = state.mode;
+  state.matching = false;
+  stopWaitTimer();
+  clearInterval(state.keepalive);
+  state.gameId = null;
+  forgetGame();
+  if (state.ws) {
+    try {
+      state.ws.onclose = null; // 避免觸發自動重連
+      state.ws.close();
+    } catch {}
+    state.ws = null;
+  }
+  if (gameId) {
+    fetch(
+      `/api/cancel?mode=${mode}&gameId=${encodeURIComponent(gameId)}`,
+    ).catch(() => {});
+  }
+  show("start");
+}
+
+async function copyGameLink() {
+  const link = location.origin + location.pathname;
+  try {
+    await navigator.clipboard.writeText(link);
+    el.btnCopyLink.textContent = "已複製 ✓";
+  } catch {
+    el.btnCopyLink.textContent = link;
+  }
+  setTimeout(() => (el.btnCopyLink.textContent = "複製遊戲連結"), 2000);
 }
 
 function connect(gameId) {
@@ -386,15 +468,23 @@ function connect(gameId) {
   ws.onclose = () => {
     clearInterval(state.keepalive);
     if (state.status === "over") return;
+    // 進入重連流程：關掉主動配對的等待秒數／邀請提示
+    state.matching = false;
+    stopWaitTimer();
+    el.matchingSub.hidden = true;
+    el.matchingInvite.hidden = true;
     // 非正常中斷：本設計「斷線即判負」，因此嘗試連回同一場，
     // 取回自己敗北的結果並顯示（而非停在「連線中斷」）。
     if ((state.reconnectTries || 0) < RECONNECT_MAX && state.gameId) {
       state.reconnectTries = (state.reconnectTries || 0) + 1;
       show("matching");
+      el.btnCancelMatch.hidden = false;
       el.matchingText.textContent = "連線中斷，重新連線中…";
       setTimeout(() => connect(state.gameId), RECONNECT_DELAY);
     } else {
+      // 重連用盡：提供出口，不再停在死畫面
       el.matchingText.textContent = "連線中斷";
+      el.btnCancelMatch.hidden = false;
     }
   };
   ws.onerror = () => {};
@@ -417,8 +507,12 @@ function handle(msg) {
   switch (msg.type) {
     case "waiting":
       el.matchingText.textContent = "等待對手加入…";
+      // 只有主動配對（非斷線重連）時才顯示等待秒數與邀請提示
+      if (state.matching) startWaitTimer();
       break;
     case "start":
+      state.matching = false;
+      stopWaitTimer();
       state.you = msg.you;
       state.target = msg.target;
       state.mode = msg.mode;
@@ -754,6 +848,7 @@ function showJudging(msg) {
     <div class="spinner" style="margin:12px auto"></div>
     <div class="judge-reason">${who}發起挑戰，AI 裁判評分中…</div>`;
   el.ovBtn.style.display = "none";
+  el.ovBtn2.hidden = true;
   el.overlay.classList.add("show");
 }
 
@@ -839,6 +934,7 @@ function showSettled(msg) {
   `;
   // server 於 nextInMs 後自動推進，這裡以進度條倒數（不顯示文字）
   el.ovBtn.style.display = "none";
+  el.ovBtn2.hidden = true;
   el.overlay.classList.add("show");
 
   const dur = msg.nextInMs || 10000;
@@ -890,15 +986,59 @@ function showGameover(msg) {
     ${eloHtml}
   `;
   el.ovBtn.textContent = "再玩一場";
-  el.ovBtn.onclick = () => location.reload();
+  el.ovBtn.onclick = rematch;
+  el.ovBtn2.hidden = false;
+  el.ovBtn2.textContent = "回主選單";
+  el.ovBtn2.onclick = backToStart;
   el.overlay.classList.add("show");
   // 對戰結束後更新自身積分（供返回開始頁時顯示最新資料）
   register();
 }
 
+// 清掉上一場的對局狀態（不重載頁面），供再玩一場／回主選單共用
+function resetGameState() {
+  hideOverlay();
+  stopWaitTimer();
+  clearInterval(state.keepalive);
+  cancelAnimationFrame(state.timerRAF);
+  clearInterval(state.resultTimer);
+  if (state.ws) {
+    try {
+      state.ws.onclose = null;
+      state.ws.close();
+    } catch {}
+    state.ws = null;
+  }
+  forgetGame();
+  state.status = "idle";
+  state.you = null;
+  state.sentence = [];
+  state.restrictions = [];
+  state.allowedPositions = null;
+  state.selectedIndex = null;
+  state.canChallenge = false;
+  state.reconnectTries = 0;
+  state.gameId = null;
+  state.matching = false;
+  state.buffering = false;
+}
+
+// 再玩一場：不重載頁面，直接以同模式重新配對
+function rematch() {
+  resetGameState();
+  play();
+}
+
+// 回主選單
+function backToStart() {
+  resetGameState();
+  show("start");
+}
+
 function hideOverlay() {
   clearInterval(state.resultTimer);
   el.overlay.classList.remove("show");
+  el.ovBtn2.hidden = true;
 }
 
 // 把本回合結算拆成條列項目：每項標明加分歸屬（challenger／challenged）與分數。
@@ -1060,12 +1200,27 @@ el.modeOpts.forEach((btn) => {
     state.mode = btn.dataset.mode;
     el.modeOpts.forEach((b) => b.classList.toggle("active", b === btn));
     el.modeDesc.textContent = MODE_DESC[state.mode];
+    // 惡魔模式時顯示「看惡魔模式怎麼玩」連結
+    el.btnDevilHelp.hidden = state.mode !== "devil";
   });
 });
 el.btnPlay.addEventListener("click", play);
 el.btnHelp.addEventListener("click", () => show("help"));
 el.btnHelpBack.addEventListener("click", () => show("start"));
 el.btnHelpPlay.addEventListener("click", play);
+// 從開始頁直達惡魔模式說明區塊
+el.btnDevilHelp.addEventListener("click", () => {
+  show("help");
+  if (el.helpDevil) {
+    setTimeout(
+      () => el.helpDevil.scrollIntoView({ behavior: "smooth", block: "start" }),
+      60,
+    );
+  }
+});
+// 配對畫面：取消配對、複製遊戲連結
+el.btnCancelMatch.addEventListener("click", cancelMatch);
+el.btnCopyLink.addEventListener("click", copyGameLink);
 el.btnSubmit.addEventListener("click", submitInsert);
 el.btnChallenge.addEventListener("click", doChallenge);
 el.charInput.addEventListener("input", updateControls);

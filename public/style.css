@@ -122,12 +122,43 @@ body {
   min-height: 38px;
   margin: 0;
 }
+.devil-help {
+  color: var(--devil) !important;
+  margin-top: -4px !important;
+}
 
 /* 配對頁 */
 #screen-matching {
   align-items: center;
   justify-content: center;
-  gap: 20px;
+  gap: 16px;
+  text-align: center;
+}
+#matching-text {
+  margin: 0;
+  font-size: 16px;
+}
+.matching-sub {
+  margin: -6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.matching-invite {
+  max-width: 300px;
+  background: var(--panel);
+  border: 1px solid var(--panel-2);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+.matching-invite p {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+#btn-cancel-match {
+  margin-top: 4px;
 }
 .spinner {
   width: 48px;
@@ -1120,6 +1151,21 @@ button.sm {
 .card .primary {
   width: 100%;
   margin-top: 18px;
+}
+.card #ov-btn2 {
+  width: 100%;
+  margin-top: 8px;
+}
+
+/* 惡魔模式說明區塊 */
+.devil-block h3 {
+  color: var(--devil);
+}
+.devil-block .dm-intro {
+  margin-top: 0;
+}
+.devil-block .crit-name {
+  color: var(--devil);
 }
 .judge-row {
   display: flex;
