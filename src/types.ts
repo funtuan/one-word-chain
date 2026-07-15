@@ -103,8 +103,7 @@ export type ServerMessage =
       challenger: Role;
       challengedChar: string | null; // 被挑戰的字；null 表示超時未出手
       challengedIndex: number | null; // 被挑戰字在 sentence 中的位置；null 表示超時未出手
-      sentenceScore: number; // 整句合理度 -3~3
-      isFiller: boolean; // 末字是否為無意義語助詞（true = 違規 -> 對方 +3）
+      sentenceScore: number; // 剛接上的字放進句子後的合理度 -3~3
       delta: number; // 實際計分變化
       awardedTo: Role | null; // 得分方（null 表平手不計分）
       awardedPoints: number;

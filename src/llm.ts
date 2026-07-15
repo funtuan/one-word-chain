@@ -1,28 +1,27 @@
-// 挑戰結算：使用 OpenRouter (openai/gpt-oss-20b) 判斷
+// 挑戰結算：使用 OpenRouter (openai/gpt-oss-120b) 判斷
 //  sentenceScore: 剛接上的那個字放進句子後合理與否，-3(非常不合理) 到 3(非常合理)
-//  isFiller: 最後放入的字是否為無意義語助詞（布林；true = 是 -> 對方直接 +3）
+//    無意義的湊字／填充語助詞會透過「拿掉測試」在此拿到負分，不再另設獨立的語助詞判定。
 
 import type { Restriction } from "./types";
 
-const MODEL = "openai/gpt-oss-20b";
+const MODEL = "openai/gpt-oss-120b";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-// 指定便宜的 provider：優先 Weights & Biases (WandB, fp4)，掛掉時依序退到次便宜的
-// DekaLLM、DeepInfra。allow_fallbacks: false → 只在這三家之內輪替，絕不退到昂貴的服務；
-// 若三家都不可用則整個請求失敗（由上層重試 / 不計分邏輯處理）。
+// 固定用 Cerebras 跑 gpt-oss-120b（推論速度快、品質穩定）。
+// allow_fallbacks:false → 只走 Cerebras，不可用時整個請求失敗，
+// 交由上層重試 / 不計分邏輯處理，絕不悄悄退到其他品質不一的 provider。
 const PROVIDER = {
-  order: ["wandb/fp4", "dekallm/bf16", "deepinfra/bf16"],
+  order: ["cerebras"],
   allow_fallbacks: false,
 };
 
-// OpenRouter 計價（USD / token）— 以主要 provider WandB fp4 為準：輸入 $0.03/M、輸出 $0.13/M。
-// 兩個備援 provider 價格幾乎相同（輸入 $0.029~0.03/M、輸出 $0.14/M），觸發時費用估算誤差極小。
-const PRICE_IN_PER_TOKEN = 0.03 / 1_000_000;
-const PRICE_OUT_PER_TOKEN = 0.13 / 1_000_000;
+// OpenRouter 計價（USD / token）— gpt-oss-120b 便宜 provider 的估值：輸入 $0.05/M、輸出 $0.45/M。
+// ⚠️ 這是估算值，只影響 ai_costs 花費統計、不影響對局；請依實際帳單／provider 頁面校正。
+const PRICE_IN_PER_TOKEN = 0.05 / 1_000_000;
+const PRICE_OUT_PER_TOKEN = 0.45 / 1_000_000;
 
 export interface Judgement {
-  sentenceScore: number; // 整句合理自然度 -3~3
-  isFiller: boolean; // 末字是否為無意義語助詞（true = 違規）
+  sentenceScore: number; // 剛接上的字放進句子後的合理自然度 -3~3
   reason: string;
   zhuyinMatch?: boolean; // zhuyin 限制：被挑戰字是否符合韻符
   posViolation?: boolean; // pos 限制：被挑戰字是否為禁止的詞性（true = 違規）
@@ -76,21 +75,20 @@ export async function judge(
 
   const jsonFields = [
     '"sentenceScore": <-3 到 3 的整數>',
-    '"isFiller": <true 或 false>',
     '"reason": "<20 字內中文理由>"',
   ];
 
   const lines = [
     "你是嚴謹的台灣繁體中文「一字接龍」裁判。玩家輪流在句子裡接上一個字，對手可挑戰句子不合理，由你裁定。",
     "句子是一個字一個字慢慢接出來的，可能還沒接完；不要因為主詞、受詞或整句還沒完整就扣分。這次剛接上、要評判的那個字會用【】標出，那正是評分的重點；【】符號本身不算句子內容，判斷時忽略符號，但要針對它框住的字評分。",
-    "你要輸出兩項判斷：",
-    "【句子評分 sentenceScore】評分焦點是「剛接上、用【】標出的那個字」：把它加進來之後，這個字放在這個位置合不合理、自不自然，給 -3 到 3 的整數。不是只看整句大致讀不讀得懂，而是看這個新字有沒有讓句子更通順到位，還是多餘、牽強、硬湊。針對這個新字三點同時看，任一點差就扣分：",
+    "【句子評分 sentenceScore】評分焦點是「剛接上、用【】標出的那個字」：把它加進來之後，這個字放在這個位置合不合理、自不自然，給 -3 到 3 的整數。不是只看整句大致讀不讀得懂，而是看這個新字有沒有讓句子更通順到位，還是多餘、牽強、硬湊。針對這個新字四點同時看，任一點差就扣分：",
     "　一、語法上這個字接在這個位置通不通順。",
     "　二、加上這個字後意思是否合理、符合常理（例如「太陽在海裡【游】泳」意思荒謬，要扣分）。",
-    "　三、語感是否自然，也就是母語人士會不會這樣接。特別注意：若這個字是多餘的、可有可無，或只是重複句中已出現的字來硬湊（例如「丐幫幫【幫】主」多一個幫、「很好【好】吃」疊字硬接），就算整句勉強讀得懂，也算不自然，要明顯扣分。",
+    "　三、語感是否自然：母語人士會不會這樣接？就算語法沒錯、這個字字面上也有意思，只要接上後唸起來拗口、生硬，或跟前後搭配牽強、像硬湊出來的詞（不是台灣人平常會講的組合），就算不自然，要扣分。",
+    "　四、這個字有沒有實質貢獻：用「拿掉測試」判斷——把這個字從句子拿掉，如果整句的意思和語氣幾乎沒變，代表它可有可無、只是湊字，要往負分給；如果拿掉後句子明顯少了意思或語氣，代表它有貢獻。這是通則，適用任何情形，不必特別針對某類字。",
     "請從嚴評分，重點是「這個新接的字」而非整句籠統印象，不要因為整句『勉強說得通』就給高分。基準：3＝這個字接得漂亮、通順自然、意思清楚，明顯是母語人士會這樣接；1 到 2＝接得還行但平淡；0＝中性、難判斷；-1 到 -2＝這個字生硬拗口、多餘或搭配牽強；-3＝加上後意思荒謬、矛盾或完全不通。",
-    "【語助詞判定 isFiller】最後接上的那個字是不是「無意義的語助詞」，回答 true（是，違規）或 false（不是）。",
-    "重點是看它在這句話裡「有沒有意義」，而不是看它長得像不像語助詞。像「的、了、啊、呢、嗎、吧、喔」這些字，只要在此句中確實改變了語氣、情緒、強調或意思（拿掉後感覺或意思會不一樣），就算有意義，判 false。例如「【啊】你有要去嗎？」的「啊」帶出驚訝或招呼的語氣，判 false。只有當這個字純粹是可有可無的填充、拿掉後語氣和意思幾乎不變時，才判 true。",
+    "語助詞、語氣詞（的、了、啊、呢、嗎、吧、喔…）也用同一套拿掉測試判斷，不要因為它長得像語助詞就扣分：只要它在這句話裡確實帶出語氣、情緒或改變意思（拿掉後語氣或意思會變），就算有貢獻、給正分，例如「你吃飽沒【啊】」「【啊】你要去嗎」的啊帶出口語或招呼語氣；只有當它純粹是可有可無的填充、拿掉後語氣和意思幾乎不變時，才算湊字、給負分。",
+    "評分範例（只示範標準，別照抄理由）：「我今天很【開】心」——拿掉「開」就不成詞、意思大變，有貢獻，判 3；「他【幫】幫忙」——「幫幫忙」比「幫忙」更口語委婉、拿掉語氣就變，有貢獻，判 2；反之，若某個字拿掉後整句意思、語氣完全一樣，只是重複或填充來拖長字數，判 -2。",
   ];
 
   if (zhuyinOn) {
@@ -137,7 +135,7 @@ export async function judge(
     let text = "";
     attempts++;
     try {
-      // OpenRouter chat-completions 格式（OpenAI 相容）；provider 欄位指定只走 WandB
+      // OpenRouter chat-completions 格式（OpenAI 相容）；provider 欄位指定只走 Cerebras
       const resp = await fetch(OPENROUTER_URL, {
         method: "POST",
         headers: {
@@ -152,7 +150,7 @@ export async function judge(
             { role: "user", content: input },
           ],
           max_tokens: 5000,
-          temperature: 0.2,
+          temperature: 0, // 判分求一致，關掉取樣隨機性
         }),
       });
       if (!resp.ok) {
@@ -185,8 +183,8 @@ export async function judge(
   // 三次都失敗 -> 中性判定（不計分），但仍回報已產生的花費
   const usage = buildUsage(promptTokens, completionTokens, attempts, false);
   return lastError
-    ? { sentenceScore: 0, isFiller: false, reason: "AI 判定失敗，本回合不計分", usage }
-    : { sentenceScore: 0, isFiller: false, reason: "無法解析 AI 回應，本回合不計分", usage };
+    ? { sentenceScore: 0, reason: "AI 判定失敗，本回合不計分", usage }
+    : { sentenceScore: 0, reason: "無法解析 AI 回應，本回合不計分", usage };
 }
 
 // 從回應取出 token 用量（相容 Chat Completions 與 Responses 兩種欄位命名）
@@ -242,11 +240,10 @@ function parseJudgement(text: string): Judgement | null {
     return null;
   }
   const sentenceScore = clampInt(obj.sentenceScore, -3, 3);
-  const isFiller = parseBool(obj.isFiller);
-  if (sentenceScore === null || isFiller === null) return null;
+  if (sentenceScore === null) return null;
   const reason =
     typeof obj.reason === "string" ? obj.reason.slice(0, 60) : "";
-  const result: Judgement = { sentenceScore, isFiller, reason };
+  const result: Judgement = { sentenceScore, reason };
   if (typeof obj.zhuyinMatch === "boolean") result.zhuyinMatch = obj.zhuyinMatch;
   if (typeof obj.posViolation === "boolean") result.posViolation = obj.posViolation;
   if (typeof obj.meaningChanged === "boolean") result.meaningChanged = obj.meaningChanged;
@@ -257,18 +254,4 @@ function clampInt(v: unknown, min: number, max: number): number | null {
   const n = typeof v === "number" ? v : Number(v);
   if (!Number.isFinite(n)) return null;
   return Math.max(min, Math.min(max, Math.round(n)));
-}
-
-// 解析布林 B：容忍 true/false、"true"/"false"、以及數字（>0 視為 true，相容舊模型輸出）
-function parseBool(v: unknown): boolean | null {
-  if (typeof v === "boolean") return v;
-  if (typeof v === "number" && Number.isFinite(v)) return v > 0;
-  if (typeof v === "string") {
-    const s = v.trim().toLowerCase();
-    if (s === "true") return true;
-    if (s === "false") return false;
-    const n = Number(s);
-    if (Number.isFinite(n)) return n > 0;
-  }
-  return null;
 }

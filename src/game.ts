@@ -287,7 +287,6 @@ export class Game {
       challengedChar: null,
       challengedIndex: null,
       sentenceScore: 0,
-      isFiller: false,
       delta: 0,
       awardedTo: opponent,
       awardedPoints: 3,
@@ -397,7 +396,6 @@ export class Game {
     const sentence = s.sentence.join("");
     const {
       sentenceScore,
-      isFiller,
       reason,
       zhuyinMatch,
       posViolation,
@@ -424,9 +422,9 @@ export class Game {
       }).catch((e) => console.error("recordAiCost failed", e)),
     );
 
-    // 違規判定（語助詞／注音限制／詞性限制任一違反）：
+    // 違規判定（惡魔模式的注音／詞性／語意限制任一違反）：
     // 直接判挑戰方 +3，忽略句子評分等其他分數的加總。
-    const fillerViolation = isFiller === true;
+    // 無意義湊字／填充語助詞不再獨立判違規，改由 sentenceScore 反映為負分。
     const zhuyinViolation =
       s.restrictions.some((r) => r.kind === "zhuyin") && zhuyinMatch === false;
     const posViolationHit =
@@ -435,7 +433,7 @@ export class Game {
       s.restrictions.some((r) => r.kind === "meaning") &&
       meaningChanged === false;
     const violated =
-      fillerViolation || zhuyinViolation || posViolationHit || meaningViolation;
+      zhuyinViolation || posViolationHit || meaningViolation;
 
     // delta>0 被挑戰方得分、<0 挑戰方得分
     let delta: number;
@@ -450,26 +448,24 @@ export class Game {
     let awardedPoints = 0;
     const challenged: Role = challenger === "p1" ? "p2" : "p1";
     if (delta > 0) {
-      // 句子合理、非語助詞 -> 挑戰錯誤 -> 對方（被挑戰方）加分
+      // 句子合理 -> 挑戰錯誤 -> 對方（被挑戰方）加分
       awardedTo = challenged;
       awardedPoints = delta;
     } else if (delta < 0) {
-      // 句子不合理／是語助詞 -> 挑戰正確 -> 我方（挑戰者）加分
+      // 句子不合理／湊字 -> 挑戰正確 -> 我方（挑戰者）加分
       awardedTo = challenger;
       awardedPoints = -delta;
     }
     if (awardedTo) s.scores[awardedTo] += awardedPoints;
 
     // 歷史：挑戰結算（AI 評分、得分、違規判定）
-    const violation = fillerViolation
-      ? "filler"
-      : zhuyinViolation
-        ? "zhuyin"
-        : posViolationHit
-          ? "pos"
-          : meaningViolation
-            ? "meaning"
-            : null;
+    const violation = zhuyinViolation
+      ? "zhuyin"
+      : posViolationHit
+        ? "pos"
+        : meaningViolation
+          ? "meaning"
+          : null;
     this.logEvent({
       type: "challenge",
       actor: challenger,
@@ -477,7 +473,7 @@ export class Game {
       char: lastChar,
       sentence: s.sentence.join(""),
       scoreA: sentenceScore,
-      scoreB: isFiller ? 1 : 0,
+      scoreB: 0, // 已移除語助詞判定，保留欄位相容舊資料，固定 0
       delta,
       awardedTo,
       awardedPoints,
@@ -495,7 +491,6 @@ export class Game {
       challengedChar: lastChar,
       challengedIndex: lastIndex,
       sentenceScore,
-      isFiller,
       delta,
       awardedTo,
       awardedPoints,

@@ -1001,7 +1001,7 @@ function doChallenge() {
   if (firstTime) {
     const char = state.lastMove && state.lastMove.char ? `「${state.lastMove.char}」` : "對方上一個字";
     const ok = window.confirm(
-      `要挑戰${char}嗎？\n\nAI 裁判會判定句子是否合理、末字是否為廢字：\n・不合理／是廢字 → 你得分\n・其實合理 → 對方得分\n\n確定要挑戰嗎？`,
+      `要挑戰${char}嗎？\n\nAI 裁判會判定對方剛接的字放進句子後合不合理：\n・不合理／多餘湊字 → 你得分\n・接得合理自然 → 對方得分\n\n確定要挑戰嗎？`,
     );
     if (!ok) return;
     try {
@@ -1340,23 +1340,20 @@ function scoreItems(msg, timeout) {
   const meaningR = rs.find((x) => x.kind === "meaning");
   const positionR = rs.find((x) => x.kind === "position");
 
-  // 違規判定（語助詞／任一生效的惡魔限制被違反）：
+  // 違規判定（惡魔模式的注音／詞性／語意限制任一違反）：
   // 直接判挑戰方 +3（多項違規也只計一次），忽略其他分數的加總。
-  const fillerViolation = msg.isFiller === true;
+  // 無意義湊字／填充語助詞不再獨立判違規，改由句子合理度反映為負分。
   const zhuyinViolation = !!zhuyinR && msg.zhuyinMatch === false;
   const posViolationHit = !!posR && msg.posViolation === true;
   const meaningViolation = !!meaningR && msg.meaningChanged === false;
 
-  if (fillerViolation || zhuyinViolation || posViolationHit || meaningViolation) {
+  if (zhuyinViolation || posViolationHit || meaningViolation) {
     // 只有第一個違規項計 +3，其餘僅列出原因（避免明細加總大於實得分數）
     let scored = false;
     const pushViolation = (label, devil) => {
       items.push({ label, role: challenger, pts: scored ? 0 : 3, devil });
       scored = true;
     };
-    if (fillerViolation) {
-      pushViolation(`語助詞違規 · 無意義語助詞`, false);
-    }
     if (zhuyinViolation) {
       const finals = escapeHtml((zhuyinR.finals || []).join(" "));
       pushViolation(`😈 注音違規（不符 ${finals}）`, true);
