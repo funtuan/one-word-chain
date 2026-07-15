@@ -715,16 +715,22 @@ button.sm {
   font-size: 13px;
   line-height: 1.6;
 }
-.restriction .r-tag {
+/* 多個限制時逐列顯示，列間以虛線分隔 */
+.restriction .r-item + .r-item {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(255, 122, 198, 0.28);
+}
+.r-tag {
   display: inline-block;
   font-weight: 800;
   color: var(--devil);
   margin-right: 6px;
 }
-.restriction .r-text {
+.r-text {
   color: var(--text);
 }
-.restriction .r-final {
+.r-final {
   display: inline-block;
   min-width: 22px;
   text-align: center;
@@ -734,6 +740,74 @@ button.sm {
   background: rgba(255, 122, 198, 0.25);
   color: var(--devil);
   font-size: 15px;
+}
+
+/* 限制提示彈窗：阻擋式（暗色遮罩吃掉點擊），3 秒後自動消失。
+   後端已把這 3 秒加到回合截止時間，故不佔用玩家的 20 秒。 */
+.r-toast {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 8, 18, 0.55);
+  backdrop-filter: blur(3px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.r-toast.show {
+  opacity: 1;
+  pointer-events: auto; /* 阻擋：吃掉點擊 */
+}
+.r-toast-card {
+  width: min(90vw, 340px);
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: linear-gradient(
+      135deg,
+      rgba(255, 122, 198, 0.16),
+      rgba(176, 108, 255, 0.16)
+    ),
+    var(--panel);
+  border: 1px solid rgba(255, 122, 198, 0.5);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: left;
+  transform: translateY(-8px) scale(0.98);
+  transition: transform 0.2s ease;
+}
+.r-toast.show .r-toast-card {
+  transform: translateY(0) scale(1);
+}
+.r-toast .rt-title {
+  font-weight: 800;
+  color: var(--devil);
+  font-size: 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+.r-toast .r-item + .r-item {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(255, 122, 198, 0.3);
+}
+/* 彈窗內的 3 秒倒數進度條 */
+.rt-count {
+  margin-top: 12px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.rt-count-bar {
+  height: 100%;
+  width: 100%;
+  border-radius: 2px;
+  background: var(--devil);
 }
 
 /* 結算：AI 評語 */
@@ -1025,7 +1099,7 @@ button.sm {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  z-index: 10;
+  z-index: 40;
 }
 .overlay.show {
   display: flex;

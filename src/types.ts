@@ -2,7 +2,7 @@
 
 export type Role = "p1" | "p2";
 
-// 遊戲模式：普通 / 惡魔（每回合隨機限制）
+// 遊戲模式：普通 / 惡魔（回合內隨字數累加限制）
 export type GameMode = "normal" | "devil";
 
 // 惡魔模式的回合限制種類
@@ -71,7 +71,7 @@ export type ServerMessage =
       target: number;
       canChallenge: boolean;
       mode: GameMode;
-      restriction: Restriction | null; // 惡魔模式本回合限制
+      restrictions: Restriction[]; // 惡魔模式目前生效的限制（可能多個）
       allowedPositions: number[] | null; // 位置限制：目前可放入的位置；null 表示不限
       names: { p1: string; p2: string }; // 雙方顯示名稱
       ratings: { p1: number; p2: number }; // 雙方 ELO 積分（開局當下）
@@ -86,6 +86,8 @@ export type ServerMessage =
       lastMove: LastMove | null;
       canChallenge: boolean;
       allowedPositions: number[] | null; // 位置限制：下一位玩家可放入的位置
+      restrictions: Restriction[]; // 惡魔模式目前生效的限制（隨字數累加）
+      newRestrictions: Restriction[]; // 本次接龍新增的限制（供前端跳提示彈窗）；無則空陣列
       timeoutQuota: Scores; // 雙方剩餘的超時額度
     }
   | {
@@ -110,7 +112,7 @@ export type ServerMessage =
       scores: Scores;
       nextInMs: number; // 幾毫秒後進入下一回合／結束
       final: boolean; // true 表示本回合結束後即分出勝負
-      restriction: Restriction | null; // 惡魔模式本回合限制（供顯示）
+      restrictions: Restriction[]; // 惡魔模式結算當下生效的限制（供顯示）
       zhuyinMatch?: boolean; // zhuyin 限制：被挑戰字是否符合韻符
       posViolation?: boolean; // pos 限制：被挑戰字是否為禁止的詞性（true = 違規）
       meaningChanged?: boolean; // meaning 限制：被挑戰字是否造成句意改變（false = 違規）

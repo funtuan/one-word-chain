@@ -40,6 +40,7 @@ const el = {
   eloMe: $("elo-me"),
   eloOpp: $("elo-opp"),
   restriction: $("restriction"),
+  restrictionToast: $("restriction-toast"),
   matchingText: $("matching-text"),
   scoreMe: $("score-me"),
   scoreOpp: $("score-opp"),
@@ -61,6 +62,8 @@ const el = {
 };
 
 const TURN_MS = 20000;
+// 新增/開局限制時的提示彈窗阻擋緩衝（與後端一致）；此段時間後端已額外加進截止時間，不佔用 20 秒
+const POPUP_MS = 3000;
 // 超時額度：每人每場預設次數（與後端一致，僅供無資料時的顯示上限）
 const TIMEOUT_QUOTA = 2;
 // 語助詞違規門檻：末字語助詞程度 B（0~3）達此值即視為違規（與後端一致）
@@ -73,7 +76,9 @@ const state = {
   ratings: { p1: 1000, p2: 1000 }, // 雙方 ELO 積分
   mode: "normal", // "normal" | "devil"
   timeoutQuota: { p1: TIMEOUT_QUOTA, p2: TIMEOUT_QUOTA }, // 雙方剩餘超時額度
-  restriction: null, // 惡魔模式本回合限制
+  restrictions: [], // 惡魔模式目前生效的限制（隨字數累加）
+  restrictionToastTimer: null, // 限制提示彈窗的自動關閉計時
+  buffering: false, // 限制提示彈窗阻擋中（此時鎖住操作、計時顯示維持滿格）
   allowedPositions: null, // 位置限制：可放入位置；null 表示不限
   sentence: [],
   currentPlayer: null,
@@ -92,7 +97,7 @@ const state = {
 
 const MODE_DESC = {
   normal: "一般規則，輪流一字接龍",
-  devil: "每回合隨機抽一個限制，輪流一字接龍",
+  devil: "回合開局 1 個限制，每接 5 個字再加 1 個（可同時多個），輪流一字接龍",
 };
 
 // ---------- 畫面切換 ----------
@@ -417,17 +422,20 @@ function handle(msg) {
       state.you = msg.you;
       state.target = msg.target;
       state.mode = msg.mode;
-      state.restriction = msg.restriction;
       if (msg.names) state.names = msg.names;
       if (msg.ratings) state.ratings = msg.ratings;
       el.labelMe.textContent = myName();
       el.labelOpp.textContent = oppName();
       el.eloMe.textContent = `${state.ratings[state.you]} 分`;
       el.eloOpp.textContent = `${state.ratings[other(state.you)]} 分`;
-      renderRestriction();
       hideOverlay();
+      hideRestrictionToast(); // 清掉上一回合可能殘留的緩衝狀態
       applyRound(msg);
       show("game");
+      // 回合開局：跳出本回合起始限制的提示彈窗（阻擋 3 秒）
+      if (state.restrictions.length) {
+        showRestrictionToast(state.restrictions, true);
+      }
       break;
     case "update":
       applyRound(msg);
@@ -462,6 +470,12 @@ function applyRound(msg) {
   state.deadline = msg.deadline;
   state.allowedPositions =
     msg.allowedPositions === undefined ? null : msg.allowedPositions;
+  if (Array.isArray(msg.restrictions)) state.restrictions = msg.restrictions;
+  renderRestriction();
+  // update 訊息夾帶本次新增的限制 -> 跳提示彈窗（3 秒）
+  if (msg.type === "update" && msg.newRestrictions && msg.newRestrictions.length) {
+    showRestrictionToast(msg.newRestrictions, false);
+  }
   state.status = "playing";
   state.selectedIndex = null;
   el.charInput.value = "";
@@ -540,7 +554,7 @@ function renderSentence(lastMove) {
     // 位置限制：不在開放清單的位置變成鎖住、不可點
     const locked = allowed !== null && !allowed.includes(index);
     if (locked) slot.classList.add("locked");
-    if (myTurn && !locked) {
+    if (myTurn && !locked && !state.buffering) {
       slot.classList.add("tappable");
       if (state.selectedIndex === index) slot.classList.add("selected");
       slot.addEventListener("click", () => selectSlot(index));
@@ -560,31 +574,100 @@ function renderSentence(lastMove) {
 }
 
 // ---------- 惡魔模式限制橫幅 ----------
+// 單一限制的說明 HTML（標籤 + 文字），供橫幅與提示彈窗共用
+function restrictionHtml(r) {
+  if (!r) return "";
+  if (r.kind === "position") {
+    return `<span class="r-tag">😈 位置限制</span><span class="r-text">每回合只開放一半的放入位置（最多 5 個），鎖住的位置不能點。</span>`;
+  }
+  if (r.kind === "zhuyin") {
+    const finals = (r.finals || [])
+      .map((f) => `<b class="r-final">${escapeHtml(f)}</b>`)
+      .join(" ");
+    return `<span class="r-tag">😈 注音限制</span><span class="r-text">放入的字字韻母須為 ${finals}，不符合對手 +3 分。</span>`;
+  }
+  if (r.kind === "pos" && r.pos) {
+    return `<span class="r-tag">😈 詞性限制</span><span class="r-text">放入的字不可是 <b class="r-final">${escapeHtml(r.pos)}</b>，違規對手 +3 分。</span>`;
+  }
+  if (r.kind === "meaning") {
+    return `<span class="r-tag">😈 意思改變限制</span><span class="r-text">放入的字必須讓句子的<b class="r-final">含義改變</b>，沒有改變對手 +3 分。</span>`;
+  }
+  return "";
+}
+
 function renderRestriction() {
-  const r = state.restriction;
-  if (!r) {
+  const rs = state.restrictions || [];
+  if (!rs.length) {
     el.restriction.hidden = true;
     el.restriction.innerHTML = "";
     return;
   }
-  let html = "";
-  if (r.kind === "position") {
-    html = `<span class="r-tag">😈 位置限制</span><span class="r-text">每回合只開放一半的放入位置（最多 5 個），鎖住的位置不能點。</span>`;
-  } else if (r.kind === "zhuyin") {
-    const finals = (r.finals || [])
-      .map((f) => `<b class="r-final">${escapeHtml(f)}</b>`)
-      .join(" ");
-    html = `<span class="r-tag">😈 注音限制</span><span class="r-text">放入的字字韻母須為 ${finals}，不符合對手 +3 分。</span>`;
-  } else if (r.kind === "pos" && r.pos) {
-    html = `<span class="r-tag">😈 詞性限制</span><span class="r-text">放入的字不可是 <b class="r-final">${escapeHtml(r.pos)}</b>，違規對手 +3 分。</span>`;
-  } else if (r.kind === "meaning") {
-    html = `<span class="r-tag">😈 意思改變限制</span><span class="r-text">放入的字必須讓句子的<b class="r-final">含義改變</b>，沒有改變對手 +3 分。</span>`;
-  }
-  el.restriction.innerHTML = html;
+  el.restriction.innerHTML = rs
+    .map((r) => `<div class="r-item">${restrictionHtml(r)}</div>`)
+    .join("");
   el.restriction.hidden = false;
 }
 
+// ---------- 限制提示彈窗（阻擋式，3 秒後自動消失）----------
+// 阻擋期間鎖住操作；後端已把這 3 秒額外加到回合截止時間，故不佔用玩家的 20 秒。
+// opening=true：回合開局的起始限制；false：回合中新增的限制
+function showRestrictionToast(restrictions, opening) {
+  const node = el.restrictionToast;
+  if (!node || !restrictions || !restrictions.length) return;
+  const title = opening ? "😈 本回合限制" : "😈 新增限制！";
+  const body = restrictions
+    .map((r) => `<div class="r-item">${restrictionHtml(r)}</div>`)
+    .join("");
+  node.innerHTML = `<div class="r-toast-card"><div class="rt-title">${title}</div>${body}<div class="rt-count"><div class="rt-count-bar"></div></div></div>`;
+  node.hidden = false;
+  node.classList.remove("show");
+  void node.offsetWidth; // 強制 reflow 以重播動畫
+  node.classList.add("show");
+
+  // 阻擋：鎖住操作、計時顯示維持滿格
+  state.buffering = true;
+  updateControls();
+  startTimer();
+
+  // 倒數進度條（3 秒歸零）
+  const bar = node.querySelector(".rt-count-bar");
+  if (bar) {
+    bar.style.transition = "none";
+    bar.style.width = "100%";
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        bar.style.transition = `width ${POPUP_MS}ms linear`;
+        bar.style.width = "0%";
+      });
+    });
+  }
+
+  clearTimeout(state.restrictionToastTimer);
+  state.restrictionToastTimer = setTimeout(() => {
+    hideRestrictionToast();
+  }, POPUP_MS);
+}
+
+// 關閉限制提示彈窗並解除阻擋
+function hideRestrictionToast() {
+  clearTimeout(state.restrictionToastTimer);
+  const node = el.restrictionToast;
+  if (node) {
+    node.classList.remove("show");
+    node.hidden = true;
+  }
+  if (state.buffering) {
+    state.buffering = false;
+    // 解除阻擋：恢復操作與正常計時
+    if (state.status === "playing") {
+      updateControls();
+      startTimer();
+    }
+  }
+}
+
 function selectSlot(index) {
+  if (state.buffering) return;
   state.selectedIndex = index;
   renderSentence(null);
   updateControls();
@@ -596,6 +679,15 @@ function updateControls() {
   const myTurn = state.currentPlayer === state.you && state.status === "playing";
   el.turnBadge.textContent = myTurn ? "輪到你" : "對手回合";
   el.turnBadge.classList.toggle("your-turn", myTurn);
+
+  // 限制提示彈窗阻擋中：鎖住所有操作（這 3 秒不計入計時）
+  if (state.buffering) {
+    el.charInput.disabled = true;
+    el.btnSubmit.disabled = true;
+    el.btnChallenge.disabled = true;
+    el.hint.textContent = "限制提示中，稍候即可行動…";
+    return;
+  }
 
   const hasChar = el.charInput.value.trim().length > 0;
   el.charInput.disabled = !myTurn;
@@ -637,10 +729,12 @@ function startTimer() {
   cancelAnimationFrame(state.timerRAF);
   const tick = () => {
     const remain = Math.max(0, state.deadline - Date.now());
-    const ratio = Math.min(1, remain / TURN_MS);
+    // 緩衝期間 deadline 比 TURN_MS 更遠，顯示上限維持在滿格 20 秒（降到 20 秒內才開始倒數）
+    const shown = Math.min(TURN_MS, remain);
+    const ratio = shown / TURN_MS;
     el.timerBar.style.transform = `scaleX(${ratio})`;
-    el.timerBar.classList.toggle("low", remain <= 5000);
-    el.timerText.textContent = Math.ceil(remain / 1000);
+    el.timerBar.classList.toggle("low", shown <= 5000);
+    el.timerText.textContent = Math.ceil(shown / 1000);
     if (state.status === "playing" || state.status === "sent") {
       state.timerRAF = requestAnimationFrame(tick);
     }
@@ -651,6 +745,7 @@ function startTimer() {
 // ---------- 挑戰等待畫面 ----------
 function showJudging(msg) {
   state.status = "settling";
+  hideRestrictionToast();
   cancelAnimationFrame(state.timerRAF);
   clearInterval(state.resultTimer);
   const who = msg.challenger === state.you ? "你" : "對手";
@@ -665,6 +760,7 @@ function showJudging(msg) {
 // ---------- 結算 / 結束 彈窗 ----------
 function showSettled(msg) {
   state.status = "result";
+  hideRestrictionToast();
   cancelAnimationFrame(state.timerRAF);
   clearInterval(state.resultTimer);
   el.scoreMe.textContent = msg.scores[state.you];
@@ -760,6 +856,7 @@ function showSettled(msg) {
 
 function showGameover(msg) {
   state.status = "over";
+  hideRestrictionToast();
   forgetGame(); // 對局已結束，清掉重連記錄
   // 斷線者重連取回結果時，沒收過 start，需由 gameover 補上自己的身分與名稱
   if (msg.you) state.you = msg.you;
@@ -819,31 +916,45 @@ function scoreItems(msg, timeout) {
 
   const challenger = msg.challenger;
   const challenged = other(challenger);
-  const r = msg.restriction;
+  const rs = msg.restrictions || [];
+  const zhuyinR = rs.find((x) => x.kind === "zhuyin");
+  const posR = rs.find((x) => x.kind === "pos");
+  const meaningR = rs.find((x) => x.kind === "meaning");
+  const positionR = rs.find((x) => x.kind === "position");
 
-  // 違規判定（語助詞／注音限制／詞性限制任一違反）：
-  // 直接判挑戰方 +3，忽略其他分數的加總。
+  // 違規判定（語助詞／任一生效的惡魔限制被違反）：
+  // 直接判挑戰方 +3（多項違規也只計一次），忽略其他分數的加總。
   const fillerViolation = msg.B >= FILLER_THRESHOLD;
-  const zhuyinViolation = r && r.kind === "zhuyin" && msg.zhuyinMatch === false;
-  const posViolationHit = r && r.kind === "pos" && msg.posViolation === true;
-  const meaningViolation = r && r.kind === "meaning" && msg.meaningChanged === false;
+  const zhuyinViolation = !!zhuyinR && msg.zhuyinMatch === false;
+  const posViolationHit = !!posR && msg.posViolation === true;
+  const meaningViolation = !!meaningR && msg.meaningChanged === false;
 
   if (fillerViolation || zhuyinViolation || posViolationHit || meaningViolation) {
+    // 只有第一個違規項計 +3，其餘僅列出原因（避免明細加總大於實得分數）
+    let scored = false;
+    const pushViolation = (label, devil) => {
+      items.push({ label, role: challenger, pts: scored ? 0 : 3, devil });
+      scored = true;
+    };
     if (fillerViolation) {
-      items.push({ label: `語助詞違規 · ${fillerWord(msg.B)}`, role: challenger, pts: 3 });
+      pushViolation(`語助詞違規 · ${fillerWord(msg.B)}`, false);
     }
     if (zhuyinViolation) {
-      const finals = escapeHtml((r.finals || []).join(" "));
-      items.push({ label: `😈 注音違規（不符 ${finals}）`, role: challenger, pts: 3, devil: true });
+      const finals = escapeHtml((zhuyinR.finals || []).join(" "));
+      pushViolation(`😈 注音違規（不符 ${finals}）`, true);
     }
     if (posViolationHit) {
-      const pos = r.pos ? escapeHtml(r.pos) : "";
-      items.push({ label: `😈 詞性違規（是${pos}）`, role: challenger, pts: 3, devil: true });
+      const pos = posR.pos ? escapeHtml(posR.pos) : "";
+      pushViolation(`😈 詞性違規（是${pos}）`, true);
     }
     if (meaningViolation) {
-      items.push({ label: `😈 意思改變違規（句意未改變）`, role: challenger, pts: 3, devil: true });
+      pushViolation(`😈 意思改變違規（句意未改變）`, true);
     }
-    notes.push("違規直接判對方 +3，其他分數不計");
+    notes.push(
+      items.length > 1
+        ? "違規直接判對方 +3（多項違規僅計一次），其他分數不計"
+        : "違規直接判對方 +3，其他分數不計",
+    );
     return { items, notes };
   }
 
@@ -853,16 +964,19 @@ function scoreItems(msg, timeout) {
   else if (msg.A < 0) items.push({ label: aLabel, role: challenger, pts: -msg.A });
   else items.push({ label: aLabel, role: null, pts: 0 });
 
-  // 惡魔模式限制（未違規時的加減分與說明）
-  if (r && r.kind === "zhuyin") {
-    const finals = escapeHtml((r.finals || []).join(" "));
+  // 惡魔模式限制（未違規時的說明，逐一列出目前生效的限制）
+  if (zhuyinR) {
+    const finals = escapeHtml((zhuyinR.finals || []).join(" "));
     notes.push(`😈 注音符合（${finals}），未加減分`);
-  } else if (r && r.kind === "pos") {
-    const pos = r.pos ? escapeHtml(r.pos) : "";
+  }
+  if (posR) {
+    const pos = posR.pos ? escapeHtml(posR.pos) : "";
     notes.push(`😈 詞性符合（非${pos}），未加減分`);
-  } else if (r && r.kind === "meaning") {
+  }
+  if (meaningR) {
     notes.push(`😈 句意有改變，未加減分`);
-  } else if (r && r.kind === "position") {
+  }
+  if (positionR) {
     notes.push(`😈 位置限制不影響計分`);
   }
 

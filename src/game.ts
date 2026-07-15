@@ -11,7 +11,11 @@ import type {
   ServerMessage,
 } from "./types";
 import { judge } from "./llm";
-import { computeAllowedPositions, KINDS, pickRestriction } from "./devil";
+import {
+  computeAllowedPositions,
+  pickRestriction,
+  targetRestrictionCount,
+} from "./devil";
 import {
   getPlayer,
   recordAiCost,
@@ -23,6 +27,8 @@ import { eloOutcome } from "./elo";
 import { SEED_WORDS } from "./seedWords";
 
 const TURN_MS = 20_000;
+// 新增/開局限制時，提示彈窗阻擋的緩衝時間；額外加到該回合截止時間，不佔用 20 秒（與前端一致）
+const POPUP_MS = 3_000;
 const RESULT_MS = 7_000; // 結算結果停留時間
 const TARGET = 5;
 // 超時額度：每人每場預設 2 次，超時時自動用掉一次換取 +10 秒（整場不重置）
@@ -35,6 +41,11 @@ function pickSeed(): string {
   return SEED_WORDS[Math.floor(Math.random() * SEED_WORDS.length)];
 }
 
+// 目前生效的限制是否含「位置限制」
+function hasPosition(restrictions: Restriction[]): boolean {
+  return restrictions.some((r) => r.kind === "position");
+}
+
 interface GameState {
   status: GameStatus;
   mode: GameMode;
@@ -44,8 +55,9 @@ interface GameState {
   firstMover: Role;
   lastMove: LastMove | null;
   turnDeadline: number;
-  restriction: Restriction | null; // 惡魔模式本回合限制
-  usedRestrictions: RestrictionKind[]; // 已出現過的限制種類（循環用完後重置）
+  restrictions: Restriction[]; // 惡魔模式目前生效的限制（隨字數累加、同回合種類不重複）
+  roundStartLen: number; // 本回合開局時的句長（用來算已接入字數）
+  prevStartKind: RestrictionKind | null; // 上一回合的起始限制種類（開局挑限制時避開，求跨回合變化）
   timeoutQuota: Scores; // 雙方剩餘的超時額度（整場不重置）
   round: number; // 回合編號（1 起，供歷史事件）
   seq: number; // 場內事件序號（1 起遞增，供歷史事件排序）
@@ -237,7 +249,7 @@ export class Game {
         type: "timeout_extend",
         actor: timedOut,
         sentence: s.sentence.join(""),
-        restriction: s.restriction?.kind ?? null,
+        restriction: this.restrictionKinds(),
         detail: { quotaLeft: s.timeoutQuota[timedOut] },
       });
       await this.save();
@@ -262,7 +274,7 @@ export class Game {
       awardedTo: opponent,
       awardedPoints: 3,
       sentence: s.sentence.join(""),
-      restriction: s.restriction?.kind ?? null,
+      restriction: this.restrictionKinds(),
       reason: "超時未出手，對方直接得分",
     });
     await this.save();
@@ -282,7 +294,7 @@ export class Game {
       scores: s.scores,
       nextInMs: RESULT_MS,
       final,
-      restriction: s.restriction,
+      restrictions: s.restrictions,
     });
     await this.save();
     await this.ctx.storage.setAlarm(Date.now() + RESULT_MS);
@@ -316,22 +328,44 @@ export class Game {
     s.lastMove = { player: role, index, char: c };
     s.currentPlayer = role === "p1" ? "p2" : "p1";
     s.turnDeadline = Date.now() + TURN_MS;
-    // 位置限制：為下一位玩家重新開放一半位置
-    s.allowedPositions =
-      s.restriction?.kind === "position"
-        ? computeAllowedPositions(s.sentence.length)
-        : null;
-    // 歷史：一次接龍
+
+    // 惡魔模式：本回合每接 5 個字累加一個新限制（種類不重複，最多用滿所有種類）。
+    // 新增的限制從下一位玩家起生效。
+    const newRestrictions: Restriction[] = [];
+    if (s.mode === "devil") {
+      const added = s.sentence.length - s.roundStartLen;
+      const target = targetRestrictionCount(added);
+      while (s.restrictions.length < target) {
+        const next = pickRestriction(s.restrictions.map((r) => r.kind));
+        if (!next) break;
+        s.restrictions.push(next);
+        newRestrictions.push(next);
+      }
+    }
+    // 本次有新增限制：下一手多給 POPUP_MS 緩衝（提示彈窗阻擋期間不計入 20 秒）
+    if (newRestrictions.length) {
+      s.turnDeadline = Date.now() + TURN_MS + POPUP_MS;
+    }
+
+    // 位置限制：為下一位玩家重新開放一半位置（只要目前生效的限制含位置限制就套用）
+    s.allowedPositions = hasPosition(s.restrictions)
+      ? computeAllowedPositions(s.sentence.length)
+      : null;
+    // 歷史：一次接龍（附目前生效限制；本次若有新增限制記於 detail）
     this.logEvent({
       type: "move",
       actor: role,
       char: c,
       posIndex: index,
       sentence: s.sentence.join(""),
+      restriction: this.restrictionKinds(),
+      detail: newRestrictions.length
+        ? { addedRestrictions: newRestrictions.map((r) => r.kind) }
+        : null,
     });
     await this.save();
     await this.ctx.storage.setAlarm(s.turnDeadline);
-    this.broadcastUpdate();
+    this.broadcastUpdate(newRestrictions);
   }
 
   private async handleChallenge(role: Role) {
@@ -365,7 +399,7 @@ export class Game {
         sentence,
         lastChar,
         lastIndex,
-        s.restriction,
+        s.restrictions,
       );
 
     // 記錄本次挑戰的 AI 花費：不阻塞結算，寫入失敗也不影響對局
@@ -375,7 +409,7 @@ export class Game {
       recordAiCost(this.env.DB, {
         gameId,
         mode: s.mode,
-        restriction: s.restriction?.kind ?? null,
+        restriction: this.restrictionKinds(),
         usage,
         now: Date.now(),
       }).catch((e) => console.error("recordAiCost failed", e)),
@@ -385,11 +419,12 @@ export class Game {
     // 直接判挑戰方 +3，忽略 A 等其他分數的加總。
     const fillerViolation = B >= FILLER_THRESHOLD;
     const zhuyinViolation =
-      s.restriction?.kind === "zhuyin" && zhuyinMatch === false;
+      s.restrictions.some((r) => r.kind === "zhuyin") && zhuyinMatch === false;
     const posViolationHit =
-      s.restriction?.kind === "pos" && posViolation === true;
+      s.restrictions.some((r) => r.kind === "pos") && posViolation === true;
     const meaningViolation =
-      s.restriction?.kind === "meaning" && meaningChanged === false;
+      s.restrictions.some((r) => r.kind === "meaning") &&
+      meaningChanged === false;
     const violated =
       fillerViolation || zhuyinViolation || posViolationHit || meaningViolation;
 
@@ -437,7 +472,7 @@ export class Game {
       delta,
       awardedTo,
       awardedPoints,
-      restriction: s.restriction?.kind ?? null,
+      restriction: this.restrictionKinds(),
       violation,
       reason,
       detail: { zhuyinMatch, posViolation, meaningChanged },
@@ -460,7 +495,7 @@ export class Game {
       scores: s.scores,
       nextInMs: RESULT_MS,
       final,
-      restriction: s.restriction,
+      restrictions: s.restrictions,
       zhuyinMatch,
       posViolation,
       meaningChanged,
@@ -632,8 +667,9 @@ export class Game {
       firstMover: "p1",
       lastMove: null,
       turnDeadline: 0,
-      restriction: null,
-      usedRestrictions: [],
+      restrictions: [],
+      roundStartLen: 0,
+      prevStartKind: null,
       timeoutQuota: { p1: TIMEOUT_QUOTA, p2: TIMEOUT_QUOTA },
       round: 0,
       seq: 0,
@@ -663,30 +699,29 @@ export class Game {
     s.firstMover = firstMover;
     s.currentPlayer = firstMover;
     s.status = "playing";
-    s.turnDeadline = Date.now() + TURN_MS;
-    // 惡魔模式：每回合抽一個限制，優先挑前面回合沒出現過的種類
+    // 惡魔模式：回合開局先給 1 個限制（避開上一回合的起始種類，求跨回合變化）；
+    // 之後在 handleInsert 內隨接入字數累加。
+    s.restrictions = [];
     if (s.mode === "devil") {
-      if (!s.usedRestrictions || s.usedRestrictions.length >= KINDS.length) {
-        s.usedRestrictions = [];
+      const first = pickRestriction(s.prevStartKind ? [s.prevStartKind] : []);
+      if (first) {
+        s.restrictions.push(first);
+        s.prevStartKind = first.kind;
       }
-      s.restriction = pickRestriction(s.usedRestrictions);
-      s.usedRestrictions.push(s.restriction.kind);
-    } else {
-      s.restriction = null;
     }
-    s.allowedPositions =
-      s.restriction?.kind === "position"
-        ? computeAllowedPositions(s.sentence.length)
-        : null;
-    // 歷史：回合開始（種子詞、先手、惡魔限制）
+    s.roundStartLen = s.sentence.length;
+    // 有起始限制時，首手多給 POPUP_MS 緩衝（提示彈窗阻擋期間不計入 20 秒）
+    s.turnDeadline = Date.now() + TURN_MS + (s.restrictions.length ? POPUP_MS : 0);
+    s.allowedPositions = hasPosition(s.restrictions)
+      ? computeAllowedPositions(s.sentence.length)
+      : null;
+    // 歷史：回合開始（種子詞、先手、惡魔起始限制）
     this.logEvent({
       type: "round_start",
       actor: firstMover,
       sentence: seed,
-      restriction: s.restriction?.kind ?? null,
-      detail: s.restriction
-        ? { finals: s.restriction.finals, pos: s.restriction.pos }
-        : null,
+      restriction: this.restrictionKinds(),
+      detail: s.restrictions.length ? { restrictions: s.restrictions } : null,
     });
     await this.save();
     await this.ctx.storage.setAlarm(s.turnDeadline);
@@ -704,7 +739,7 @@ export class Game {
         target: TARGET,
         canChallenge: this.canChallenge(role),
         mode: s.mode,
-        restriction: s.restriction,
+        restrictions: s.restrictions,
         allowedPositions: s.allowedPositions,
         names: this.names(),
         ratings: s.ratings ?? { p1: 1000, p2: 1000 },
@@ -713,7 +748,7 @@ export class Game {
     }
   }
 
-  private broadcastUpdate() {
+  private broadcastUpdate(newRestrictions: Restriction[] = []) {
     const s = this.state!;
     for (const ws of this.ctx.getWebSockets()) {
       const role = this.roleOf(ws);
@@ -727,9 +762,18 @@ export class Game {
         lastMove: s.lastMove,
         canChallenge: this.canChallenge(role),
         allowedPositions: s.allowedPositions,
+        restrictions: s.restrictions,
+        newRestrictions,
         timeoutQuota: s.timeoutQuota ?? { p1: TIMEOUT_QUOTA, p2: TIMEOUT_QUOTA },
       });
     }
+  }
+
+  // 目前生效限制的種類字串（逗號分隔，供歷史/計費紀錄）；無則 null
+  private restrictionKinds(): string | null {
+    const rs = this.state?.restrictions;
+    if (!rs?.length) return null;
+    return rs.map((r) => r.kind).join(",");
   }
 
   private canChallenge(role: Role): boolean {

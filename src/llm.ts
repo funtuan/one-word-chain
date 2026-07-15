@@ -64,12 +64,15 @@ export async function judge(
   sentence: string,
   lastChar: string,
   lastIndex: number,
-  restriction?: Restriction | null,
+  restrictions: Restriction[] = [],
 ): Promise<Judgement & { usage: JudgeUsage }> {
   const chars = Array.from(sentence);
-  const zhuyinOn = restriction?.kind === "zhuyin" && !!restriction.finals?.length;
-  const posOn = restriction?.kind === "pos" && !!restriction.pos;
-  const meaningOn = restriction?.kind === "meaning";
+  // 同回合種類不重複，故每種至多一個；多個限制可同時生效。
+  const zhuyinR = restrictions.find((r) => r.kind === "zhuyin");
+  const posR = restrictions.find((r) => r.kind === "pos");
+  const zhuyinOn = !!zhuyinR?.finals?.length;
+  const posOn = !!posR?.pos;
+  const meaningOn = restrictions.some((r) => r.kind === "meaning");
 
   const jsonFields = ['"A": <整數>', '"B": <整數>', '"reason": "<20字內中文理由>"'];
 
@@ -88,7 +91,7 @@ export async function judge(
   ];
 
   if (zhuyinOn) {
-    const finals = restriction!.finals!.join("、");
+    const finals = zhuyinR!.finals!.join("、");
     lines.push(
       `本回合有「注音韻符限制」：允許的韻符為 ${finals}。`,
       `zhuyinMatch = 判斷「最後放入的那個字」（${lastChar}）的注音韻母（結尾韻符）是否為上述其中之一，是則 true、否則 false（布林值）。`,
@@ -96,7 +99,7 @@ export async function judge(
     jsonFields.push('"zhuyinMatch": <true 或 false>');
   }
   if (posOn) {
-    const pos = restriction!.pos!;
+    const pos = posR!.pos!;
     lines.push(
       `本回合有「詞性限制」：本回合「禁止」放入詞性為「${pos}」的字。`,
       `posViolation = 判斷「最後放入的那個字」（${lastChar}）在整句話中所扮演的詞性是否為「${pos}」，是（違規）則 true、否則 false（布林值）。請依該字在此句中的實際用法判斷，而非它單獨時可能的詞性。`,
