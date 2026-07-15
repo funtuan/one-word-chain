@@ -41,6 +41,8 @@ const el = {
   matchingInvite: $("matching-invite"),
   btnCopyLink: $("btn-copy-link"),
   btnCancelMatch: $("btn-cancel-match"),
+  btnRetryMatch: $("btn-retry-match"),
+  btnSound: $("btn-sound"),
   labelMe: $("label-me"),
   labelOpp: $("label-opp"),
   eloMe: $("elo-me"),
@@ -103,10 +105,19 @@ const state = {
   matching: false, // 是否正在（新的）配對等待中
   waitStart: 0, // 開始等待對手的時間戳
   waitTimer: null, // 配對等待秒數更新計時器
+  wasMyTurn: false, // 上一次是否輪到自己（用來偵測「換我了」以發通知）
+  lastMove: null, // 對方上一手（供挑戰提示顯示被挑戰的字）
+  judgeTimer: null, // 挑戰評分的前端逾時保護
+  iAmReady: false, // 結算停留階段我是否已按「準備好了」
 };
 
 // 等待超過此秒數仍未配到人 -> 顯示「邀請朋友」提示
 const INVITE_AFTER_MS = 15000;
+// 挑戰評分逾時保護：超過此時間仍未收到結果 -> 視為連線異常，觸發重連
+const JUDGE_TIMEOUT_MS = 20000;
+const SOUND_KEY = "owc:sound"; // 音效開關（localStorage）
+let soundEnabled = true;
+let audioCtx = null;
 
 const MODE_DESC = {
   normal: "一般規則，輪流一字接龍",
@@ -358,6 +369,8 @@ async function play() {
     openNameScreen(false);
     return;
   }
+  ensureAudio(); // 藉此次點擊手勢初始化音效（瀏覽器自動播放限制）
+  state.wasMyTurn = false;
   show("matching");
   state.matching = true;
   resetMatchingUi();
@@ -428,6 +441,15 @@ function cancelMatch() {
   show("start");
 }
 
+// 重連用盡後，玩家手動重試連回同一場
+function retryConnect() {
+  if (!state.gameId) return;
+  state.reconnectTries = 0;
+  el.btnRetryMatch.hidden = true;
+  el.matchingText.textContent = "重新連線中…";
+  connect(state.gameId);
+}
+
 async function copyGameLink() {
   const link = location.origin + location.pathname;
   try {
@@ -455,6 +477,7 @@ function connect(gameId) {
 
   ws.onopen = () => {
     state.reconnectTries = 0;
+    el.btnRetryMatch.hidden = true;
   };
   ws.onmessage = (ev) => {
     let msg;
@@ -479,11 +502,13 @@ function connect(gameId) {
       state.reconnectTries = (state.reconnectTries || 0) + 1;
       show("matching");
       el.btnCancelMatch.hidden = false;
+      el.btnRetryMatch.hidden = true;
       el.matchingText.textContent = "連線中斷，重新連線中…";
       setTimeout(() => connect(state.gameId), RECONNECT_DELAY);
     } else {
-      // 重連用盡：提供出口，不再停在死畫面
+      // 重連用盡：提供「重試」與「取消」兩個出口，不再停在死畫面
       el.matchingText.textContent = "連線中斷";
+      el.btnRetryMatch.hidden = !state.gameId;
       el.btnCancelMatch.hidden = false;
     }
   };
@@ -543,6 +568,9 @@ function handle(msg) {
     case "settled":
       showSettled(msg);
       break;
+    case "readyState":
+      showReadyState(msg);
+      break;
     case "gameover":
       showGameover(msg);
       break;
@@ -558,9 +586,12 @@ function handle(msg) {
 }
 
 function applyRound(msg) {
+  clearJudgeTimer(); // 進入新回合狀態，解除評分逾時保護
+  state.iAmReady = false;
   state.sentence = msg.sentence;
   state.currentPlayer = msg.currentPlayer;
   state.canChallenge = msg.canChallenge;
+  state.lastMove = msg.lastMove || null;
   state.deadline = msg.deadline;
   state.allowedPositions =
     msg.allowedPositions === undefined ? null : msg.allowedPositions;
@@ -583,6 +614,74 @@ function applyRound(msg) {
   renderSentence(msg.lastMove);
   updateControls();
   startTimer();
+  notifyTurnChange();
+}
+
+// ---------- 換我了：震動 / 音效 / 分頁標題提示 ----------
+const BASE_TITLE = "一字接龍";
+function notifyTurnChange() {
+  const myTurn = state.currentPlayer === state.you && state.status === "playing";
+  if (myTurn && !state.wasMyTurn && !state.buffering) {
+    // 剛換成我的回合：提醒玩家（背景分頁也不會錯過）
+    try {
+      navigator.vibrate && navigator.vibrate(80);
+    } catch {}
+    playBeep();
+    if (document.hidden) document.title = "🔔 輪到你了 – " + BASE_TITLE;
+  }
+  if (!myTurn) document.title = BASE_TITLE;
+  state.wasMyTurn = myTurn;
+}
+
+// ---------- 音效（WebAudio 短音，可開關）----------
+function loadSound() {
+  try {
+    soundEnabled = localStorage.getItem(SOUND_KEY) !== "off";
+  } catch {}
+}
+function ensureAudio() {
+  if (!audioCtx) {
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch {}
+  }
+  if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+}
+function playBeep() {
+  if (!soundEnabled || !audioCtx) return;
+  try {
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, t);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.15, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.26);
+  } catch {}
+}
+function renderSoundToggle() {
+  if (!el.btnSound) return;
+  el.btnSound.textContent = soundEnabled ? "🔔 音效：開" : "🔕 音效：關";
+}
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  try {
+    localStorage.setItem(SOUND_KEY, soundEnabled ? "on" : "off");
+  } catch {}
+  renderSoundToggle();
+  if (soundEnabled) {
+    ensureAudio();
+    playBeep();
+  }
+}
+
+function clearJudgeTimer() {
+  clearTimeout(state.judgeTimer);
+  state.judgeTimer = null;
 }
 
 // ---------- 超時額度 ----------
@@ -641,6 +740,9 @@ function renderSentence(lastMove) {
   el.sentence.innerHTML = "";
   const chars = state.sentence;
 
+  // 放入預覽：選好位置且已輸入合法字時，在該位置以半透明「幽靈字」顯示
+  const preview = myTurn ? previewChar() : "";
+
   const allowed = state.allowedPositions;
   const addSlot = (index) => {
     const slot = document.createElement("div");
@@ -654,6 +756,13 @@ function renderSentence(lastMove) {
       slot.addEventListener("click", () => selectSlot(index));
     }
     el.sentence.appendChild(slot);
+    // 幽靈字：緊接在被選中的位置後方
+    if (preview && state.selectedIndex === index) {
+      const g = document.createElement("span");
+      g.className = "char ghost";
+      g.textContent = preview;
+      el.sentence.appendChild(g);
+    }
   };
 
   addSlot(0);
@@ -760,10 +869,25 @@ function hideRestrictionToast() {
   }
 }
 
+// 目前輸入框中的合法單一中文字（供放入預覽用），否則回空字串
+function previewChar() {
+  const c = (el.charInput.value || "").trim();
+  if ([...c].length === 1 && /^[一-鿿]$/u.test(c)) return c;
+  return "";
+}
+
+// 輸入框變動：更新控制列並刷新放入預覽
+function onCharInput() {
+  updateControls();
+  if (state.currentPlayer === state.you && state.status === "playing") {
+    renderSentence(state.lastMove);
+  }
+}
+
 function selectSlot(index) {
   if (state.buffering) return;
   state.selectedIndex = index;
-  renderSentence(null);
+  renderSentence(state.lastMove);
   updateControls();
   el.charInput.focus();
 }
@@ -789,10 +913,22 @@ function updateControls() {
   el.btnChallenge.disabled = !(myTurn && state.canChallenge);
 
   if (myTurn) {
-    el.hint.textContent =
-      state.selectedIndex === null
-        ? "點選要放入的位置，再輸入一個字"
-        : "輸入一個中文字後按「放入」";
+    const hasPos = state.selectedIndex !== null;
+    let hint;
+    if (hasChar && hasPos) {
+      hint = "按「放入」確認，或改點其他位置";
+    } else if (hasChar && !hasPos) {
+      hint = "點一下句子中要放入的位置";
+    } else if (!hasChar && hasPos) {
+      hint = "輸入一個中文字後按「放入」";
+    } else {
+      hint = "輸入一個字並點選位置（順序不限）";
+    }
+    // 可挑戰時，順帶提醒被挑戰的字與風險
+    if (state.canChallenge && state.lastMove && state.lastMove.char) {
+      hint += `，或挑戰對方的「${state.lastMove.char}」`;
+    }
+    el.hint.textContent = hint;
   } else {
     el.hint.textContent = "等待對手出手…";
   }
@@ -812,7 +948,23 @@ function submitInsert() {
   el.btnChallenge.disabled = true;
 }
 
+const CHALLENGED_KEY = "owc:challengedOnce";
 function doChallenge() {
+  // 首次挑戰前，說明勝負規則（挑戰失敗對方得分），之後不再打擾
+  let firstTime = false;
+  try {
+    firstTime = !localStorage.getItem(CHALLENGED_KEY);
+  } catch {}
+  if (firstTime) {
+    const char = state.lastMove && state.lastMove.char ? `「${state.lastMove.char}」` : "對方上一個字";
+    const ok = window.confirm(
+      `要挑戰${char}嗎？\n\nAI 裁判會判定句子是否合理、末字是否為廢字：\n・不合理／是廢字 → 你得分\n・其實合理 → 對方得分\n\n確定要挑戰嗎？`,
+    );
+    if (!ok) return;
+    try {
+      localStorage.setItem(CHALLENGED_KEY, "1");
+    } catch {}
+  }
   send({ type: "challenge" });
   el.btnChallenge.disabled = true;
   el.hint.textContent = "挑戰中，AI 裁判評分中…";
@@ -850,11 +1002,27 @@ function showJudging(msg) {
   el.ovBtn.style.display = "none";
   el.ovBtn2.hidden = true;
   el.overlay.classList.add("show");
+
+  // 逾時保護：評分太久（多半是連線異常）就觸發重連，避免永遠卡在此畫面
+  clearJudgeTimer();
+  state.judgeTimer = setTimeout(() => {
+    if (state.status !== "settling") return;
+    el.ovBody.innerHTML = `
+      <div class="spinner" style="margin:12px auto"></div>
+      <div class="judge-reason">評分逾時，重新連線中…</div>`;
+    if (state.ws) {
+      try {
+        state.ws.close();
+      } catch {}
+    }
+  }, JUDGE_TIMEOUT_MS);
 }
 
 // ---------- 結算 / 結束 彈窗 ----------
 function showSettled(msg) {
   state.status = "result";
+  state.iAmReady = false;
+  clearJudgeTimer();
   hideRestrictionToast();
   cancelAnimationFrame(state.timerRAF);
   clearInterval(state.resultTimer);
@@ -931,9 +1099,13 @@ function showSettled(msg) {
     </div>
     ${changeHtml}
     <div class="settle-count"><div id="ov-count-bar" class="settle-count-bar"></div></div>
+    <div class="settle-next" id="ov-next">${msg.final ? "即將公布結果…" : "即將開始下一回合…"}</div>
   `;
-  // server 於 nextInMs 後自動推進，這裡以進度條倒數（不顯示文字）
-  el.ovBtn.style.display = "none";
+  // server 於 nextInMs 後自動推進，這裡以進度條倒數；並提供「準備好了」提前推進
+  el.ovBtn.style.display = "";
+  el.ovBtn.textContent = "準備好了 ›";
+  el.ovBtn.disabled = false;
+  el.ovBtn.onclick = sendReady;
   el.ovBtn2.hidden = true;
   el.overlay.classList.add("show");
 
@@ -950,8 +1122,34 @@ function showSettled(msg) {
   });
 }
 
+// 結算停留：按「準備好了」提前推進；雙方到齊後端即取消倒數、直接進下一回合
+function sendReady() {
+  if (state.iAmReady) return;
+  state.iAmReady = true;
+  send({ type: "ready" });
+  el.ovBtn.disabled = true;
+  el.ovBtn.textContent = "已準備，等待對方…";
+  const nextEl = document.getElementById("ov-next");
+  if (nextEl) nextEl.textContent = "已準備，等待對方…";
+}
+
+function showReadyState(msg) {
+  if (state.status !== "result") return;
+  const ready = msg.ready || [];
+  const oppReady = ready.includes(other(state.you));
+  const nextEl = document.getElementById("ov-next");
+  if (!nextEl) return;
+  if (state.iAmReady) {
+    nextEl.textContent = "已準備，等待對方…";
+  } else if (oppReady) {
+    nextEl.textContent = "對方已準備好，按「準備好了」即可提前開始";
+  }
+}
+
 function showGameover(msg) {
   state.status = "over";
+  clearJudgeTimer();
+  document.title = BASE_TITLE;
   hideRestrictionToast();
   forgetGame(); // 對局已結束，清掉重連記錄
   // 斷線者重連取回結果時，沒收過 start，需由 gameover 補上自己的身分與名稱
@@ -986,6 +1184,7 @@ function showGameover(msg) {
     ${eloHtml}
   `;
   el.ovBtn.textContent = "再玩一場";
+  el.ovBtn.disabled = false;
   el.ovBtn.onclick = rematch;
   el.ovBtn2.hidden = false;
   el.ovBtn2.textContent = "回主選單";
@@ -1021,6 +1220,12 @@ function resetGameState() {
   state.gameId = null;
   state.matching = false;
   state.buffering = false;
+  state.wasMyTurn = false;
+  state.lastMove = null;
+  state.iAmReady = false;
+  clearJudgeTimer();
+  document.title = BASE_TITLE;
+  el.btnRetryMatch.hidden = true;
 }
 
 // 再玩一場：不重載頁面，直接以同模式重新配對
@@ -1218,12 +1423,19 @@ el.btnDevilHelp.addEventListener("click", () => {
     );
   }
 });
-// 配對畫面：取消配對、複製遊戲連結
+// 配對畫面：取消配對、複製遊戲連結、重試連線
 el.btnCancelMatch.addEventListener("click", cancelMatch);
 el.btnCopyLink.addEventListener("click", copyGameLink);
+el.btnRetryMatch.addEventListener("click", retryConnect);
+// 音效開關
+el.btnSound.addEventListener("click", toggleSound);
+// 回到前景時還原分頁標題（玩家已在看畫面，不需要提示）
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) document.title = BASE_TITLE;
+});
 el.btnSubmit.addEventListener("click", submitInsert);
 el.btnChallenge.addEventListener("click", doChallenge);
-el.charInput.addEventListener("input", updateControls);
+el.charInput.addEventListener("input", onCharInput);
 el.charInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !el.btnSubmit.disabled) submitInsert();
 });
@@ -1261,6 +1473,8 @@ el.btnLbBack.addEventListener("click", () => show("start"));
 
 // ---------- 啟動 ----------
 function boot() {
+  loadSound();
+  renderSoundToggle();
   loadIdentity();
   if (!me.name) {
     openNameScreen(false);

@@ -1013,6 +1013,12 @@ button.sm {
   border-radius: 999px;
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
 }
+.settle-next {
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 8px;
+}
 
 /* 句子 */
 .sentence {
@@ -1035,6 +1041,13 @@ button.sm {
   background: rgba(53, 208, 165, 0.22);
   color: var(--accent-2);
 }
+/* 放入預覽的幽靈字（尚未送出） */
+.char.ghost {
+  color: var(--accent);
+  opacity: 0.55;
+  background: rgba(108, 140, 255, 0.14);
+  border-radius: 6px;
+}
 .slot {
   width: 14px;
   align-self: stretch;
@@ -1044,8 +1057,18 @@ button.sm {
   transition: width 0.12s ease, background 0.12s ease;
 }
 .slot.tappable {
-  width: 18px;
+  width: 20px;
   background: rgba(108, 140, 255, 0.12);
+}
+/* 放大點擊熱區（不改變視覺寬度）：向左右延伸透明可點區 */
+.slot.tappable::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -8px;
+  right: -8px;
+  z-index: 1;
 }
 .slot.tappable::after {
   content: "";

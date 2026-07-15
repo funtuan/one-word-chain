@@ -55,6 +55,7 @@ export interface PlayerStats {
 export type ClientMessage =
   | { type: "insert"; index: number; char: string }
   | { type: "challenge" }
+  | { type: "ready" } // 結算停留階段，玩家按「準備好了」提前推進
   | { type: "ping" };
 
 // ---- Server -> Client ----
@@ -116,6 +117,11 @@ export type ServerMessage =
       zhuyinMatch?: boolean; // zhuyin 限制：被挑戰字是否符合韻符
       posViolation?: boolean; // pos 限制：被挑戰字是否為禁止的詞性（true = 違規）
       meaningChanged?: boolean; // meaning 限制：被挑戰字是否造成句意改變（false = 違規）
+    }
+  | {
+      // 結算停留階段的「準備好了」狀態：哪些人已按下（供另一方顯示「對方已準備」）
+      type: "readyState";
+      ready: Role[];
     }
   | {
       type: "gameover";

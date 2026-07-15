@@ -64,6 +64,7 @@ interface GameState {
   allowedPositions: number[] | null; // 位置限制：目前玩家可放入的位置
   pendingFirstMover?: Role; // result 階段結束後的下一回合先手
   pendingWinner?: Role | null; // result 階段結束後若非 null 即遊戲結束
+  readyPlayers?: Role[]; // result 階段中已按「準備好了」的玩家（雙方到齊即提前推進）
   players: { p1: PlayerIdentity | null; p2: PlayerIdentity | null }; // 雙方身分
   ratings: { p1: number; p2: number }; // 雙方 ELO 積分（開局當下，整局不變）
   games: { p1: number; p2: number }; // 雙方已玩場數（開局當下，供動態 K / placement）
@@ -168,7 +169,15 @@ export class Game {
     if (!role) return;
 
     const s = await this.ensureState();
-    if (!s || s.status !== "playing") return;
+    if (!s) return;
+
+    // 結算停留階段的「準備好了」：不受「輪到你」限制，雙方皆可按
+    if (msg.type === "ready") {
+      await this.handleReady(role);
+      return;
+    }
+
+    if (s.status !== "playing") return;
     if (role !== s.currentPlayer) {
       this.sendTo(ws, { type: "error", message: "還沒輪到你" });
       return;
@@ -213,22 +222,7 @@ export class Game {
 
     // 結算結果停留結束 -> 進入下一回合或結束遊戲
     if (s.status === "result") {
-      if (s.pendingWinner) {
-        s.status = "over";
-        s.finalWinner = s.pendingWinner;
-        s.finalReason = "score";
-        // 歷史：整場結束（達標得勝）
-        this.logEvent({
-          type: "game_over",
-          winner: s.pendingWinner,
-          reason: "score",
-        });
-        await this.save();
-        this.broadcast(this.buildGameover());
-        await this.recordResult(s.pendingWinner, "score");
-      } else {
-        await this.beginRound(s.pendingFirstMover ?? "p1");
-      }
+      await this.advanceFromResult();
       return;
     }
 
@@ -512,7 +506,46 @@ export class Game {
     s.status = "result";
     s.pendingWinner = winner;
     s.pendingFirstMover = s.firstMover === "p1" ? "p2" : "p1";
+    s.readyPlayers = []; // 重置「準備好了」狀態
     return winner !== null;
+  }
+
+  // 結算停留結束（alarm 到期或雙方都按「準備好了」）：進入下一回合或結束遊戲
+  private async advanceFromResult() {
+    const s = this.state!;
+    if (s.status !== "result") return;
+    if (s.pendingWinner) {
+      s.status = "over";
+      s.finalWinner = s.pendingWinner;
+      s.finalReason = "score";
+      // 歷史：整場結束（達標得勝）
+      this.logEvent({
+        type: "game_over",
+        winner: s.pendingWinner,
+        reason: "score",
+      });
+      await this.save();
+      this.broadcast(this.buildGameover());
+      await this.recordResult(s.pendingWinner, "score");
+    } else {
+      await this.beginRound(s.pendingFirstMover ?? "p1");
+    }
+  }
+
+  // 結算停留階段，玩家按「準備好了」：記錄該方；雙方到齊即取消 alarm、提前推進。
+  private async handleReady(role: Role) {
+    const s = this.state!;
+    if (s.status !== "result") return;
+    const ready = s.readyPlayers ?? [];
+    if (!ready.includes(role)) ready.push(role);
+    s.readyPlayers = ready;
+    await this.save();
+    this.broadcast({ type: "readyState", ready });
+    // 雙方都準備好 -> 取消停留 alarm，立即推進到下一回合／結束
+    if (ready.includes("p1") && ready.includes("p2")) {
+      await this.ctx.storage.deleteAlarm();
+      await this.advanceFromResult();
+    }
   }
 
   // 依開局當下的 ELO 與勝方，算出本場雙方積分變化（供 gameover 顯示）。
