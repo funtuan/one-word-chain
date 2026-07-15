@@ -88,12 +88,22 @@ export class Game {
 
   // ---- HTTP: WebSocket 升級 ----
   async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    // 存活檢查（Lobby 配對前用）：房主 WS 仍連著、且此房尚未開局／未結束
+    // 才算「可加入」。避免把新配對者導進一個已被放棄的空房而永遠等不到人。
+    if (url.pathname.endsWith("/alive")) {
+      const s = await this.ensureState();
+      const joinable =
+        this.ctx.getWebSockets().length >= 1 && (!s || s.status === "waiting");
+      return Response.json({ alive: joinable });
+    }
+
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("expected websocket", { status: 426 });
     }
 
     const existing = this.ctx.getWebSockets();
-    const url = new URL(request.url);
     const reqPlayerId = (url.searchParams.get("playerId") ?? "").slice(0, 64);
 
     // 遊戲已結束（含斷線判負）：不重新開局，改為補送結果給重連的玩家。

@@ -20,13 +20,17 @@ interface Env {
 // ---- 配對用 Durable Object（單一全域實例）----
 export class Lobby {
   private ctx: DurableObjectState;
-  constructor(ctx: DurableObjectState) {
+  private env: Env;
+  // 房主剛拿到 gameId、WS 還沒接上前的寬限期：這段時間內視為存活，
+  // 避免因連線時序把正要進房的房主誤判為死房。
+  private static readonly CONNECT_GRACE_MS = 5_000;
+  constructor(ctx: DurableObjectState, env: Env) {
     this.ctx = ctx;
+    this.env = env;
   }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const WAIT_TTL = 30_000;
     const waiting = await this.ctx.storage.get<{ gameId: string; ts: number }>(
       "waiting",
     );
@@ -41,16 +45,35 @@ export class Lobby {
       return Response.json({ ok: true });
     }
 
-    if (waiting && Date.now() - waiting.ts < WAIT_TTL) {
-      // 有人在等 -> 配對，清掉等待狀態
+    // 有人在等 -> 先確認房主仍在線（或仍在連線寬限期內）才配對。
+    // 改用存活檢查而非固定 TTL：只要房主還乖乖等著，等再久也配得到；
+    // 房主已放棄（關頁）則立即判死、改開新房，兩種情況都能正確處理。
+    if (
+      waiting &&
+      (Date.now() - waiting.ts < Lobby.CONNECT_GRACE_MS ||
+        (await this.isRoomAlive(waiting.gameId)))
+    ) {
       await this.ctx.storage.delete("waiting");
       return Response.json({ gameId: waiting.gameId });
     }
 
-    // 沒人等（或已過期）-> 建立新房，開始等待
+    // 沒人等（或等待房已死）-> 建立新房，開始等待
     const gameId = crypto.randomUUID();
     await this.ctx.storage.put("waiting", { gameId, ts: Date.now() });
     return Response.json({ gameId });
+  }
+
+  // 詢問對應的 Game DO：房主 WS 是否仍連著且此房尚可加入。
+  private async isRoomAlive(gameId: string): Promise<boolean> {
+    try {
+      const stub = this.env.GAME.get(this.env.GAME.idFromName(gameId));
+      const res = await stub.fetch(`https://lobby.internal/game/${gameId}/alive`);
+      if (!res.ok) return false;
+      const { alive } = (await res.json()) as { alive?: boolean };
+      return alive === true;
+    } catch {
+      return false;
+    }
   }
 }
 
