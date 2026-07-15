@@ -51,6 +51,24 @@ export async function getLeaderboard(
   return results ?? [];
 }
 
+// 取玩家目前名次與戰績（未上榜／無場數回 null）。
+// 名次定義與 getLeaderboard 的排序一致：rating DESC, wins DESC。
+export async function getPlayerRank(
+  db: D1Database,
+  id: string,
+): Promise<{ rank: number; player: PlayerStats } | null> {
+  const player = await getPlayer(db, id);
+  if (!player || player.games <= 0) return null;
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS above FROM players
+       WHERE games > 0 AND (rating > ? OR (rating = ? AND wins > ?))`,
+    )
+    .bind(player.rating, player.rating, player.wins)
+    .first<{ above: number }>();
+  return { rank: (row?.above ?? 0) + 1, player };
+}
+
 // 取玩家目前 rating 與已玩場數（不存在則預設 1000 / 0），供動態 K 結算
 async function eloOf(db: D1Database, id: string): Promise<PlayerElo> {
   const row = await db

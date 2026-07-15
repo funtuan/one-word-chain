@@ -58,6 +58,7 @@
                 <p class="acct-warn danger">
                   ⚠️ 登入後將切換到該帳號，<b>目前這個裝置上的帳號會被登出</b>（若沒有備份代碼將無法找回）。
                 </p>
+                <p id="import-error" class="import-error" hidden></p>
                 <button id="btn-import" class="primary" disabled>登入此帳號</button>
               </div>
             </div>
@@ -217,6 +218,7 @@
           </div>
           <div id="lb-list" class="lb-list"></div>
         </div>
+        <div id="lb-me" class="lb-me" hidden></div>
       </section>
 
       <section id="screen-matching" class="screen">
@@ -233,6 +235,9 @@
 
       <!-- 對戰 -->
       <section id="screen-game" class="screen">
+        <div class="game-topbar">
+          <button id="btn-leave" class="leave-btn">✕ 離開</button>
+        </div>
         <header class="scoreboard">
           <div class="score me">
             <span id="label-me" class="label">我</span>

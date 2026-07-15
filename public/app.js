@@ -21,6 +21,7 @@ const el = {
   btnShowImport: $("btn-show-import"),
   acctImport: $("acct-import"),
   importCode: $("import-code"),
+  importError: $("import-error"),
   btnImport: $("btn-import"),
   btnDeleteAccount: $("btn-delete-account"),
   playerBar: $("player-bar"),
@@ -29,6 +30,8 @@ const el = {
   btnLeaderboard: $("btn-leaderboard"),
   btnLbBack: $("btn-lb-back"),
   lbList: $("lb-list"),
+  lbMe: $("lb-me"),
+  btnLeave: $("btn-leave"),
   btnPlay: $("btn-play"),
   btnHelp: $("btn-help"),
   btnHelpBack: $("btn-help-back"),
@@ -131,6 +134,7 @@ function show(name) {
 
 // ---------- 身分（localStorage，無需登入）----------
 const STORE_KEY = "owc:player";
+const BACKUP_KEY = "owc:backupReminded"; // 是否已提醒過備份帳號代碼
 const me = { id: null, name: null, stats: null };
 
 function loadIdentity() {
@@ -208,6 +212,7 @@ function openNameScreen(editing) {
   el.acctImport.hidden = true;
   el.importCode.value = "";
   el.btnImport.disabled = true;
+  if (el.importError) el.importError.hidden = true;
   show("name");
   setTimeout(() => el.nameInput.focus(), 50);
 }
@@ -243,11 +248,20 @@ async function copyCode() {
 }
 
 // 用代碼登入既有帳號：切換身分並從伺服器載入該帳號名稱
+function showImportError(text) {
+  el.importError.textContent = text;
+  el.importError.hidden = false;
+}
+function hideImportError() {
+  el.importError.hidden = true;
+  el.importError.textContent = "";
+}
+
 async function importAccount() {
   const id = normalizeCode(el.importCode.value);
+  hideImportError();
   if (!id) {
-    el.importCode.value = "";
-    el.importCode.placeholder = "請貼上帳號代碼";
+    showImportError("請貼上帳號代碼。");
     el.btnImport.disabled = true;
     return;
   }
@@ -259,9 +273,10 @@ async function importAccount() {
     if (res.ok) stats = (await res.json()).player;
   } catch {}
   el.btnImport.textContent = "登入此帳號";
+  el.btnImport.disabled = false;
   if (!stats) {
-    el.importCode.value = "";
-    el.importCode.placeholder = "找不到此帳號代碼對應的帳號";
+    // 不清空輸入，方便玩家修正打錯的字元（0/O、1/I 等易混）
+    showImportError("找不到此帳號代碼對應的帳號，請確認後再試（注意 0/O、1/I/L 等易混字元）。");
     return;
   }
   // 覆蓋本機身分（原帳號等於登出）
@@ -305,13 +320,36 @@ async function saveName() {
 async function openLeaderboard() {
   show("leaderboard");
   el.lbList.innerHTML = `<div class="lb-empty">載入中…</div>`;
+  el.lbMe.hidden = true;
   try {
-    const res = await fetch("/api/leaderboard?limit=20");
-    const { players } = await res.json();
+    const q = me.id ? `&id=${encodeURIComponent(me.id)}` : "";
+    const res = await fetch(`/api/leaderboard?limit=20${q}`);
+    const { players, me: myRank } = await res.json();
     renderLeaderboard(players || []);
+    renderLbMe(myRank, players || []);
   } catch {
     el.lbList.innerHTML = `<div class="lb-empty">載入失敗，請稍後再試</div>`;
   }
+}
+
+// 榜單底部固定顯示自己的名次；未上榜（沒場數）則提示去玩一場
+function renderLbMe(myRank, players) {
+  if (!me.name) {
+    el.lbMe.hidden = true;
+    return;
+  }
+  if (!myRank) {
+    el.lbMe.hidden = false;
+    el.lbMe.innerHTML = `<div class="lb-me-unranked">你還沒有排名，先完成一場對戰吧！</div>`;
+    return;
+  }
+  el.lbMe.hidden = false;
+  el.lbMe.innerHTML = `<div class="lb-row">
+    <span class="lb-rank">${myRank.rank}</span>
+    <span class="lb-name">${escapeHtml(myRank.name)}（你）</span>
+    <span class="lb-rating">${myRank.rating}</span>
+    <span class="lb-wins">${myRank.wins}</span>
+  </div>`;
 }
 
 function renderLeaderboard(players) {
@@ -821,7 +859,7 @@ function showRestrictionToast(restrictions, opening) {
   const body = restrictions
     .map((r) => `<div class="r-item">${restrictionHtml(r)}</div>`)
     .join("");
-  node.innerHTML = `<div class="r-toast-card"><div class="rt-title">${title}</div>${body}<div class="rt-count"><div class="rt-count-bar"></div></div></div>`;
+  node.innerHTML = `<div class="r-toast-card"><div class="rt-title">${title}</div>${body}<div class="rt-count"><div class="rt-count-bar"></div></div><div class="rt-dismiss">點擊任意處關閉</div></div>`;
   node.hidden = false;
   node.classList.remove("show");
   void node.offsetWidth; // 強制 reflow 以重播動畫
@@ -1175,6 +1213,15 @@ function showGameover(msg) {
         ${eloRow(oppName(), msg.elo[other(state.you)])}
       </div>`;
   }
+  // 首次勝利時提醒備份帳號代碼（換裝置不掉分）；只提醒一次
+  let showBackup = false;
+  try {
+    showBackup = win && !!me.name && !localStorage.getItem(BACKUP_KEY);
+  } catch {}
+  const backupHtml = showBackup
+    ? `<button type="button" class="backup-tip" id="backup-tip-btn">💾 記得備份「帳號代碼」，換手機或瀏覽器都不會掉分 ›</button>`
+    : "";
+
   el.ovBody.innerHTML = `
     <div class="judge-reason">${escapeHtml(reason)}</div>
     <div class="judge-row">
@@ -1182,7 +1229,19 @@ function showGameover(msg) {
       <div class="judge-item"><span class="k">${escapeHtml(oppName())}</span><span class="v">${msg.scores[other(state.you)]}</span></div>
     </div>
     ${eloHtml}
+    ${backupHtml}
   `;
+  if (showBackup) {
+    try {
+      localStorage.setItem(BACKUP_KEY, "1");
+    } catch {}
+    const tip = document.getElementById("backup-tip-btn");
+    if (tip)
+      tip.onclick = () => {
+        resetGameState();
+        openNameScreen(true); // 顯示帳號代碼供備份
+      };
+  }
   el.ovBtn.textContent = "再玩一場";
   el.ovBtn.disabled = false;
   el.ovBtn.onclick = rematch;
@@ -1226,6 +1285,15 @@ function resetGameState() {
   clearJudgeTimer();
   document.title = BASE_TITLE;
   el.btnRetryMatch.hidden = true;
+}
+
+// 對戰中主動離開：確認後關閉連線（後端視為斷線 -> 對方判勝），回主選單
+function leaveGame() {
+  if (state.status === "over") return;
+  const ok = window.confirm("離開將直接判負，確定要離開嗎？");
+  if (!ok) return;
+  resetGameState(); // 內含關閉連線（onclose 已解除，不會重連）
+  show("start");
 }
 
 // 再玩一場：不重載頁面，直接以同模式重新配對
@@ -1435,6 +1503,9 @@ document.addEventListener("visibilitychange", () => {
 });
 el.btnSubmit.addEventListener("click", submitInsert);
 el.btnChallenge.addEventListener("click", doChallenge);
+el.btnLeave.addEventListener("click", leaveGame);
+// 限制提示彈窗：點擊任意處提前關閉（後端已把緩衝加進截止時間，不影響公平）
+el.restrictionToast.addEventListener("click", hideRestrictionToast);
 el.charInput.addEventListener("input", onCharInput);
 el.charInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !el.btnSubmit.disabled) submitInsert();
@@ -1458,7 +1529,7 @@ el.btnShowImport.addEventListener("click", () => {
   if (!el.acctImport.hidden) el.importCode.focus();
 });
 el.importCode.addEventListener("input", () => {
-  el.importCode.placeholder = "例：OWC-AB23-CD45-EF67";
+  hideImportError();
   el.btnImport.disabled = !el.importCode.value.trim();
 });
 el.importCode.addEventListener("keydown", (e) => {

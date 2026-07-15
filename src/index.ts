@@ -1,5 +1,11 @@
 import { Game } from "./game";
-import { getLeaderboard, getPlayer, registerPlayer } from "./db";
+import {
+  getLeaderboard,
+  getPlayer,
+  getPlayerRank,
+  registerPlayer,
+} from "./db";
+import type { PlayerStats } from "./types";
 
 export { Game };
 
@@ -77,7 +83,14 @@ export default {
         Math.max(1, Number(url.searchParams.get("limit")) || 20),
       );
       const players = await getLeaderboard(env.DB, limit);
-      return Response.json({ players });
+      // 附帶請求者自己的名次（供榜單底部顯示，不論是否在前段）
+      const id = url.searchParams.get("id") ?? "";
+      let me: (PlayerStats & { rank: number }) | null = null;
+      if (id) {
+        const r = await getPlayerRank(env.DB, id);
+        if (r) me = { rank: r.rank, ...r.player };
+      }
+      return Response.json({ players, me });
     }
 
     // 個人戰績
