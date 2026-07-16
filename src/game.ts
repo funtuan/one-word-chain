@@ -959,6 +959,8 @@ export class Game {
     const lastIndex = s.lastMove!.index;
     const challenged = s.lastMove!.player;
     const sentence = s.sentence.join("");
+    // 量測整段評分（含所有重試）的實際耗時，對照 SETTLE_RECOVERY_MS 追查逾時原因。
+    const judgeStart = Date.now();
     const {
       sentenceScore,
       reason,
@@ -973,16 +975,30 @@ export class Game {
       lastIndex,
       s.restrictions,
     );
+    const judgeMs = Date.now() - judgeStart;
 
     // 評分期間對局可能已被搶先結束（如全員中離、房主解散），或本次呼叫已被
     // recoverStuckSettle() 判定逾時、由另一條路徑接手處理：放棄本次結算。
     if (this.state?.status !== "settling" || this.state?.settleToken !== myToken) {
+      // judge() 有回來、只是太慢（已被復原接手）或對局已結束；記下耗時以便追查逾時。
+      console.log(
+        JSON.stringify({
+          ev: "judge_abandoned",
+          game: this.recordGameId(),
+          judgeMs,
+          attempts: usage.attempts,
+          ok: usage.ok,
+          status: this.state?.status ?? null,
+        }),
+      );
       return;
     }
 
     // 記錄本次挑戰的 AI 花費：不阻塞結算，寫入失敗也不影響對局
     const gameId = this.recordGameId();
-    console.log(JSON.stringify({ ev: "judge_cost", game: gameId, ...usage }));
+    console.log(
+      JSON.stringify({ ev: "judge_cost", game: gameId, judgeMs, ...usage }),
+    );
     this.ctx.waitUntil(
       recordAiCost(this.env.DB, {
         gameId,
@@ -1086,6 +1102,16 @@ export class Game {
     const challenger = s.pendingChallenger ?? s.currentPlayer;
     const challenged = s.lastMove?.player ?? null;
     const reason = "系統評分逾時，本回合不計分";
+    // 逾時復原被觸發：代表 judge() 在 SETTLE_RECOVERY_MS 內沒回來（AI 太慢／卡住，
+    // 或 DO 在評分中重啟）。搭配 judge_attempt 的逐次耗時可判斷是哪家 provider 卡住。
+    console.log(
+      JSON.stringify({
+        ev: "judge_timeout",
+        game: this.recordGameId(),
+        recoveryMs: SETTLE_RECOVERY_MS,
+        char: s.lastMove?.char ?? null,
+      }),
+    );
     this.logEvent({
       type: "challenge",
       actor: this.seatLabel(challenger),
