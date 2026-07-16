@@ -245,7 +245,7 @@ function closeDetail() {
   overlay.classList.add("hidden");
 }
 
-const R_LABEL = { position: "位置", zhuyin: "注音", pos: "詞性", meaning: "意思改變" };
+const R_LABEL = { position: "位置", zhuyin: "注音", pos: "詞性", meaning: "意思改變", noboring: "別太無聊" };
 function roleName(role, m) {
   return role === "p1" ? m.p1Name : role === "p2" ? m.p2Name : "";
 }

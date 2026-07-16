@@ -1158,6 +1158,9 @@ function restrictionHtml(r) {
   if (r.kind === "meaning") {
     return `<span class="r-tag">😈 意思改變限制</span><span class="r-text">放入的字必須讓句子的<b class="r-final">含義改變</b>，沒有改變對手 +3 分。</span>`;
   }
+  if (r.kind === "noboring") {
+    return `<span class="r-tag">😈 別太無聊限制</span><span class="r-text">不可放入無聊字：<b class="r-final">人稱代名詞</b>（你我他…）、<b class="r-final">語氣感嘆詞</b>（嗎吧啊哈呢啦…）、<b class="r-final">親屬稱謂</b>（爸媽叔姨…），違規對手 +3 分。</span>`;
+  }
   return "";
 }
 
@@ -1823,14 +1826,16 @@ function scoreItems(msg, timeout) {
   const posR = rs.find((x) => x.kind === "pos");
   const meaningR = rs.find((x) => x.kind === "meaning");
   const positionR = rs.find((x) => x.kind === "position");
+  const noBoringR = rs.find((x) => x.kind === "noboring");
 
-  // 違規判定（惡魔模式的注音／詞性／語意限制任一違反）：
+  // 違規判定（惡魔模式的注音／詞性／語意／別太無聊限制任一違反）：
   // 直接判挑戰方 +3（多項違規也只計一次），忽略其他分數的加總。
   const zhuyinViolation = !!zhuyinR && msg.zhuyinMatch === false;
   const posViolationHit = !!posR && msg.posViolation === true;
   const meaningViolation = !!meaningR && msg.meaningChanged === false;
+  const noBoringViolation = !!noBoringR && msg.noBoringViolation === true;
 
-  if (zhuyinViolation || posViolationHit || meaningViolation) {
+  if (zhuyinViolation || posViolationHit || meaningViolation || noBoringViolation) {
     // 只有第一個違規項計 +3，其餘僅列出原因（避免明細加總大於實得分數）
     let scored = false;
     const pushViolation = (label, devil) => {
@@ -1847,6 +1852,9 @@ function scoreItems(msg, timeout) {
     }
     if (meaningViolation) {
       pushViolation(`😈 意思改變違規（句意未改變）`, true);
+    }
+    if (noBoringViolation) {
+      pushViolation(`😈 別太無聊違規（放入禁止字）`, true);
     }
     notes.push(
       items.length > 1
@@ -1875,6 +1883,9 @@ function scoreItems(msg, timeout) {
   }
   if (meaningR) {
     notes.push(`😈 句意有改變，未加減分`);
+  }
+  if (noBoringR) {
+    notes.push(`😈 未放入禁止字，未加減分`);
   }
   if (positionR) {
     notes.push(`😈 位置限制不影響計分`);

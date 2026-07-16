@@ -13,7 +13,13 @@ export const ZHUYIN_FINALS = [
 // 詞性限制候選：每回合隨機禁止其中一種詞性
 export const POS_CATEGORIES: PosCategory[] = ["名詞", "動詞", "形容詞"];
 
-export const KINDS: RestrictionKind[] = ["position", "zhuyin", "pos", "meaning"];
+export const KINDS: RestrictionKind[] = [
+  "position",
+  "zhuyin",
+  "pos",
+  "meaning",
+  "noboring",
+];
 
 // 隨機產生一個限制，其種類不在 exclude 內；可用種類已用盡時回 null。
 // 供兩種用途：回合開局挑起始限制（exclude 放上一回合起始種類以求變化）、

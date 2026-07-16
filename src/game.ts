@@ -96,6 +96,9 @@ interface GameState {
   currentPlayer: Seat;
   firstMover: Seat;
   lastMove: LastMove | null;
+  // 最後一手放入當下「已生效」的限制快照。因放入第 N 手可能觸發新增限制、而新限制「從下一位
+  // 玩家起生效」，挑戰這一手時須用放入當下的限制集（不含這一手觸發新增的）來評分，避免多判一項。
+  lastMoveRestrictions: Restriction[];
   turnDeadline: number;
   restrictions: Restriction[]; // 惡魔模式目前生效的限制（隨字數累加、同回合種類不重複）
   roundStartLen: number; // 本回合開局時的句長（用來算已接入字數）
@@ -203,6 +206,7 @@ export class Game {
       currentPlayer: 0,
       firstMover: 0,
       lastMove: null,
+      lastMoveRestrictions: [],
       turnDeadline: 0,
       restrictions: [],
       roundStartLen: 0,
@@ -253,6 +257,7 @@ export class Game {
         currentPlayer: 0,
         firstMover: 0,
         lastMove: null,
+        lastMoveRestrictions: [],
         turnDeadline: 0,
         restrictions: [],
         roundStartLen: 0,
@@ -536,6 +541,7 @@ export class Game {
     s.status = "waiting";
     s.sentence = [];
     s.lastMove = null;
+    s.lastMoveRestrictions = [];
     s.round = 0;
     s.seq = 0;
     s.restrictions = [];
@@ -876,6 +882,9 @@ export class Game {
 
     s.sentence.splice(index, 0, c);
     s.lastMove = { player: seat, index, char: c };
+    // 快照這一手放入當下已生效的限制；本手觸發新增的限制（下方 while）不算在內，
+    // 挑戰這一手時只用此快照評分，避免多判一項。
+    s.lastMoveRestrictions = [...s.restrictions];
     s.consecSkips = 0;
 
     const next = await this.advancePastEliminations(seat);
@@ -959,6 +968,9 @@ export class Game {
     const lastIndex = s.lastMove!.index;
     const challenged = s.lastMove!.player;
     const sentence = s.sentence.join("");
+    // 這一手放入當下已生效的限制（不含這一手觸發新增的）；評分、違規判定、結算顯示都以此為準。
+    // 舊存檔可能沒有此欄位，退回目前限制集以策安全。
+    const activeRestrictions = s.lastMoveRestrictions ?? s.restrictions;
     // 量測整段評分（含所有重試）的實際耗時，對照 SETTLE_RECOVERY_MS 追查逾時原因。
     const judgeStart = Date.now();
     const {
@@ -967,13 +979,14 @@ export class Game {
       zhuyinMatch,
       posViolation,
       meaningChanged,
+      noBoringViolation,
       usage,
     } = await judge(
       this.env.OPENROUTER_API_KEY,
       sentence,
       lastChar,
       lastIndex,
-      s.restrictions,
+      activeRestrictions,
     );
     const judgeMs = Date.now() - judgeStart;
 
@@ -1003,7 +1016,7 @@ export class Game {
       recordAiCost(this.env.DB, {
         gameId,
         mode: s.mode,
-        restriction: this.restrictionKinds(),
+        restriction: this.restrictionKinds(activeRestrictions),
         usage,
         now: Date.now(),
       }).catch((e) => console.error("recordAiCost failed", e)),
@@ -1012,13 +1025,18 @@ export class Game {
     // 違規判定（惡魔模式的注音／詞性／語意限制任一違反）：
     // 直接判挑戰方 +3，忽略句子評分等其他分數的加總。
     const zhuyinViolation =
-      s.restrictions.some((r) => r.kind === "zhuyin") && zhuyinMatch === false;
+      activeRestrictions.some((r) => r.kind === "zhuyin") && zhuyinMatch === false;
     const posViolationHit =
-      s.restrictions.some((r) => r.kind === "pos") && posViolation === true;
+      activeRestrictions.some((r) => r.kind === "pos") && posViolation === true;
     const meaningViolation =
-      s.restrictions.some((r) => r.kind === "meaning") &&
+      activeRestrictions.some((r) => r.kind === "meaning") &&
       meaningChanged === false;
-    const violated = zhuyinViolation || posViolationHit || meaningViolation;
+    // 別太無聊限制：AI 判定被挑戰字是否為無聊字（人稱代名詞／語氣感嘆詞／親屬稱謂）。
+    const noBoringViolationHit =
+      activeRestrictions.some((r) => r.kind === "noboring") &&
+      noBoringViolation === true;
+    const violated =
+      zhuyinViolation || posViolationHit || meaningViolation || noBoringViolationHit;
 
     // delta>0 被挑戰方得分、<0 挑戰方得分。
     // 多人下計分只在「挑戰者 ↔ 被挑戰者」之間流動，其他玩家不動。
@@ -1049,7 +1067,9 @@ export class Game {
         ? "pos"
         : meaningViolation
           ? "meaning"
-          : null;
+          : noBoringViolationHit
+            ? "noboring"
+            : null;
     this.logEvent({
       type: "challenge",
       actor: this.seatLabel(challenger),
@@ -1062,10 +1082,10 @@ export class Game {
       delta,
       awardedTo: this.seatLabel(awardedTo),
       awardedPoints,
-      restriction: this.restrictionKinds(),
+      restriction: this.restrictionKinds(activeRestrictions),
       violation,
       reason,
-      detail: { zhuyinMatch, posViolation, meaningChanged },
+      detail: { zhuyinMatch, posViolation, meaningChanged, noBoringViolation },
     });
 
     const final = this.startResultPhase();
@@ -1086,10 +1106,11 @@ export class Game {
       round: s.round,
       nextInMs: RESULT_MS,
       final,
-      restrictions: s.restrictions,
+      restrictions: activeRestrictions,
       zhuyinMatch,
       posViolation,
       meaningChanged,
+      noBoringViolation,
     });
     await this.ctx.storage.setAlarm(Date.now() + RESULT_MS);
   }
@@ -1124,7 +1145,7 @@ export class Game {
       delta: 0,
       awardedTo: null,
       awardedPoints: 0,
-      restriction: this.restrictionKinds(),
+      restriction: this.restrictionKinds(s.lastMoveRestrictions),
       reason,
     });
     const final = this.startResultPhase();
@@ -1145,7 +1166,7 @@ export class Game {
       round: s.round,
       nextInMs: RESULT_MS,
       final,
-      restrictions: s.restrictions,
+      restrictions: s.lastMoveRestrictions ?? s.restrictions,
     });
     await this.ctx.storage.setAlarm(Date.now() + RESULT_MS);
   }
@@ -1608,6 +1629,7 @@ export class Game {
     s.round = (s.round ?? 0) + 1;
     s.sentence = [...seed];
     s.lastMove = null;
+    s.lastMoveRestrictions = [];
     s.firstMover = firstMover;
     s.currentPlayer = firstMover;
     s.status = "playing";
@@ -1745,9 +1767,9 @@ export class Game {
     return this.state!.seats.map((sk) => sk.timeoutQuota);
   }
 
-  // 目前生效限制的種類字串（逗號分隔，供歷史/計費紀錄）；無則 null
-  private restrictionKinds(): string | null {
-    const rs = this.state?.restrictions;
+  // 限制的種類字串（逗號分隔，供歷史/計費紀錄）；無則 null。
+  // 預設取目前生效限制；挑戰結算可傳入「被挑戰手當下的限制快照」以如實記錄實際評分依據。
+  private restrictionKinds(rs = this.state?.restrictions): string | null {
     if (!rs?.length) return null;
     return rs.map((r) => r.kind).join(",");
   }

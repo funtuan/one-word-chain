@@ -24,7 +24,13 @@ export type WinRule =
   | { kind: "rounds"; rounds: number };
 
 // 惡魔模式的回合限制種類
-export type RestrictionKind = "position" | "zhuyin" | "pos" | "meaning";
+// noboring（別太無聊限制）：AI 判定，禁止接上無聊字——人稱代名詞、語氣感嘆詞、親屬稱謂。
+export type RestrictionKind =
+  | "position"
+  | "zhuyin"
+  | "pos"
+  | "meaning"
+  | "noboring";
 
 // 詞性限制：本回合「不可放入」的詞性（三選一）
 export type PosCategory = "名詞" | "動詞" | "形容詞";
@@ -194,6 +200,7 @@ export type ServerMessage =
       zhuyinMatch?: boolean; // zhuyin 限制：被挑戰字是否符合韻符
       posViolation?: boolean; // pos 限制：被挑戰字是否為禁止的詞性（true = 違規）
       meaningChanged?: boolean; // meaning 限制：被挑戰字是否造成句意改變（false = 違規）
+      noBoringViolation?: boolean; // noboring 限制：被挑戰字是否為禁止的無聊字（true = 違規）
     }
   | {
       // 結算停留階段的「準備好了」狀態：哪些座位已按下

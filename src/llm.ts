@@ -39,6 +39,7 @@ export interface Judgement {
   zhuyinMatch?: boolean; // zhuyin 限制：被挑戰字是否符合韻符
   posViolation?: boolean; // pos 限制：被挑戰字是否為禁止的詞性（true = 違規）
   meaningChanged?: boolean; // meaning 限制：被挑戰字是否造成句意改變（false = 違規）
+  noBoringViolation?: boolean; // noboring 限制：被挑戰字是否為無聊字（true = 違規）
 }
 
 // 單次挑戰的模型用量與花費（累計同一次挑戰內的所有重試）
@@ -102,6 +103,7 @@ export async function judge(
   const zhuyinOn = !!zhuyinR?.finals?.length;
   const posOn = !!posR?.pos;
   const meaningOn = restrictions.some((r) => r.kind === "meaning");
+  const noBoringOn = restrictions.some((r) => r.kind === "noboring");
 
   const jsonFields = [
     '"sentenceScore": <-3 到 3 的整數>',
@@ -141,6 +143,16 @@ export async function judge(
       `請從嚴判斷。結構助詞（的、地、得、之、了、著、過）和純語氣詞（啊、呢、嗎、吧、喔、呀）多半只是讓語法更完整，本身不帶新資訊，原則上判 false，例如「我大臣→我的大臣」「他來→他來了」「慢走→慢慢走」拿掉後意思幾乎一樣。只有當這個字明確改變了指涉、數量、否定、時態或轉折等實質意思（例如加「不」變否定、加「三」指定數量、加「昨」改變時間），才判 true。`,
     );
     jsonFields.push('"meaningChanged": <true 或 false>');
+  }
+  if (noBoringOn) {
+    lines.push(
+      `【別太無聊限制 noBoringViolation】本回合禁止接上「無聊、沒創意」的字。以下三類視為違規：`,
+      `　一、人稱代名詞：你、我、他、她、妳、您、咱、俺（及其複數如我們、你們、他們）。`,
+      `　二、語氣詞或感嘆詞：任何純粹表達語氣、疑問或驚嘆的字，例如 嗎、吧、啊、哈、呢、啦、嘛、喔、哦、喲、唷、耶、唉、哎、欸、嗯、哇、咦、哼、呀、囉 之類。`,
+      `　三、親屬稱謂：爸、媽、爹、娘、哥、姊、弟、妹、爺、奶、叔、伯、姑、姨、舅、嬸（及疊字如爸爸、媽媽、叔叔、阿姨）。`,
+      `依「${lastChar}」在這句話裡的實際用法判斷它是否屬於上述任一類（不是看字面能不能組成別的詞，而是看它在此處的角色）：是（代表違規）就 true、否則 false。`,
+    );
+    jsonFields.push('"noBoringViolation": <true 或 false>');
   }
 
   lines.push(
@@ -321,6 +333,7 @@ function parseJudgement(text: string): Judgement | null {
   if (typeof obj.zhuyinMatch === "boolean") result.zhuyinMatch = obj.zhuyinMatch;
   if (typeof obj.posViolation === "boolean") result.posViolation = obj.posViolation;
   if (typeof obj.meaningChanged === "boolean") result.meaningChanged = obj.meaningChanged;
+  if (typeof obj.noBoringViolation === "boolean") result.noBoringViolation = obj.noBoringViolation;
   return result;
 }
 
