@@ -10,6 +10,19 @@ const K_LOW = 40; // rating < 1200
 const K_MID = 32; // 1200 ~ 2000
 const K_HIGH = 16; // rating > 2000
 
+// 分數膨脹（低分成就感設計）：1800 分以下，贏「加多」、輸「減少」，讓多玩累積更有感。
+// 1800 分以上維持標準 ELO（零和），高分區才有真正的競爭意義。
+export const INFLATION_CEILING = 1800; // 到此分數膨脹歸零；以上不膨脹
+const INFLATION_SPAN = 800; // 從 1800 往下線性拉滿到 (1800-800)=1000，1000 以下都吃滿膨脹
+const GAIN_BONUS = 0.5; // 膨脹拉滿時得分最多 +50%
+const LOSS_RELIEF = 0.5; // 膨脹拉滿時扣分最多 -50%
+
+// 膨脹強度 t ∈ [0,1]：rating≥1800 為 0（標準 ELO）；越低於 1800 越接近 1（膨脹最強）。
+function inflationT(rating: number): number {
+  if (rating >= INFLATION_CEILING) return 0;
+  return Math.min(1, (INFLATION_CEILING - rating) / INFLATION_SPAN);
+}
+
 export function expectedScore(ratingA: number, ratingB: number): number {
   return 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
 }
@@ -42,8 +55,14 @@ export function eloOutcome(
   const kW = kFactor(winner.rating, winner.games);
   const kL = kFactor(loser.rating, loser.games);
   // 勝方 S=1、敗方 S=0；敗方期望勝率為 (1 - expWinner)
-  const winDelta = Math.round(kW * (1 - expWinner));
-  const loseDelta = -Math.round(kL * (1 - expWinner));
+  const baseDelta = kW * (1 - expWinner);
+  const baseLoss = kL * (1 - expWinner);
+  // 低分膨脹（各自依自己的 rating）：贏方按 GAIN_BONUS 放大、輸方按 LOSS_RELIEF 減免。
+  const gainMul = 1 + GAIN_BONUS * inflationT(winner.rating);
+  const lossMul = 1 - LOSS_RELIEF * inflationT(loser.rating);
+  // 贏至少 +1，避免大熱門獲勝被四捨五入成 0 而缺乏成就感。
+  const winDelta = Math.max(1, Math.round(baseDelta * gainMul));
+  const loseDelta = -Math.round(baseLoss * lossMul);
   return {
     winner: {
       before: winner.rating,
