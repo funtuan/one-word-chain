@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>戰況數據後台</title>
+    <style>
+      :root {
+        --bg: #0f1220;
+        --panel: #1a1f36;
+        --panel-2: #232a4d;
+        --accent: #6c8cff;
+        --accent-2: #35d0a5;
+        --devil: #ff7ac6;
+        --danger: #ff6b6b;
+        --warn: #ffcc66;
+        --text: #eef1ff;
+        --muted: #9aa3c7;
+        --line: #313a63;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        font-family: -apple-system, "PingFang TC", "Noto Sans TC", system-ui, sans-serif;
+        background: radial-gradient(120% 120% at 50% 0%, #1b2140 0%, var(--bg) 60%);
+        color: var(--text);
+        min-height: 100dvh;
+        -webkit-font-smoothing: antialiased;
+      }
+      a { color: var(--accent); }
+      .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
+
+      /* 登入 */
+      #gate {
+        min-height: 100dvh;
+        display: flex; align-items: center; justify-content: center; padding: 24px;
+      }
+      .gate-box {
+        width: 100%; max-width: 360px; background: var(--panel);
+        border: 1px solid var(--line); border-radius: 16px; padding: 28px 24px;
+        box-shadow: 0 24px 60px rgba(0,0,0,0.4);
+      }
+      .gate-box h1 { font-size: 20px; margin: 0 0 4px; }
+      .gate-box p { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+      input[type="password"] {
+        width: 100%; padding: 12px 14px; border-radius: 10px;
+        border: 1px solid var(--line); background: var(--bg); color: var(--text);
+        font-size: 15px; outline: none;
+      }
+      input[type="password"]:focus { border-color: var(--accent); }
+      button {
+        cursor: pointer; border: none; border-radius: 10px; font-size: 15px;
+        font-weight: 600; color: #fff; background: var(--accent); padding: 12px 16px;
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
+      .gate-box button { width: 100%; margin-top: 14px; }
+      .gate-err { color: var(--danger); font-size: 13px; margin-top: 12px; min-height: 18px; }
+
+      /* 頂列 */
+      header.bar {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
+      }
+      header.bar h1 { font-size: 22px; margin: 0; }
+      header.bar .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+      .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+      select, .ghost-btn {
+        background: var(--panel); color: var(--text); border: 1px solid var(--line);
+        border-radius: 9px; padding: 8px 12px; font-size: 13px; font-weight: 500;
+      }
+      .ghost-btn { cursor: pointer; }
+
+      /* 卡片 */
+      .cards {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 12px; margin-bottom: 26px;
+      }
+      .card {
+        background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+        padding: 16px;
+      }
+      .card .label { color: var(--muted); font-size: 12px; letter-spacing: 0.02em; }
+      .card .value { font-size: 26px; font-weight: 700; margin-top: 6px; line-height: 1.1; }
+      .card .value small { font-size: 13px; font-weight: 500; color: var(--muted); }
+      .card .foot { color: var(--muted); font-size: 12px; margin-top: 6px; }
+
+      .panel {
+        background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+        padding: 18px; margin-bottom: 20px;
+      }
+      .panel h2 { font-size: 15px; margin: 0 0 4px; }
+      .panel .hint { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+      .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+      .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: middle; }
+      .chart { width: 100%; overflow-x: auto; }
+      svg { display: block; max-width: 100%; }
+      svg text { fill: var(--muted); font-size: 11px; }
+      svg .grid { stroke: var(--line); stroke-width: 1; }
+
+      /* 表格 */
+      .table-scroll { overflow-x: auto; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px; }
+      th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+      th { color: var(--muted); font-weight: 600; font-size: 12px; }
+      td.num { text-align: right; font-variant-numeric: tabular-nums; }
+      .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+      .tag.normal { background: rgba(108,140,255,0.18); color: var(--accent); }
+      .tag.devil { background: rgba(255,122,198,0.18); color: var(--devil); }
+      .win { color: var(--accent-2); font-weight: 600; }
+      .reason { color: var(--muted); font-size: 11px; }
+      .empty { color: var(--muted); text-align: center; padding: 28px; }
+      .hidden { display: none !important; }
+
+      tr.clickable { cursor: pointer; }
+      tr.clickable:hover { background: var(--panel-2); }
+
+      /* 單場詳情彈窗 */
+      .overlay {
+        position: fixed; inset: 0; background: rgba(6,8,18,0.72);
+        display: flex; align-items: flex-start; justify-content: center;
+        padding: 24px 12px; overflow-y: auto; z-index: 50;
+      }
+      .modal {
+        width: 100%; max-width: 620px; background: var(--panel);
+        border: 1px solid var(--line); border-radius: 16px; padding: 20px;
+        box-shadow: 0 30px 80px rgba(0,0,0,0.55); position: relative;
+      }
+      .modal-close {
+        position: absolute; top: 14px; right: 14px; width: 32px; height: 32px;
+        padding: 0; border-radius: 8px; background: var(--panel-2); color: var(--muted);
+        font-size: 16px; line-height: 1;
+      }
+      .d-head h2 { font-size: 17px; margin: 0 0 10px; padding-right: 36px; }
+      .d-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+      .d-score { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .d-score .p1 { color: var(--accent); }
+      .d-score .p2 { color: var(--devil); }
+      .d-score .sep { color: var(--muted); margin: 0 8px; }
+
+      .round-group { margin-top: 16px; }
+      .round-title {
+        font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: 0.03em;
+        border-top: 1px solid var(--line); padding-top: 12px; margin-bottom: 8px;
+      }
+      .ev { display: flex; gap: 10px; padding: 7px 0; align-items: flex-start; }
+      .ev .icon { flex: 0 0 22px; text-align: center; font-size: 14px; line-height: 1.5; }
+      .ev .body { flex: 1; min-width: 0; }
+      .ev .who { font-weight: 600; }
+      .ev .who.p1 { color: var(--accent); }
+      .ev .who.p2 { color: var(--devil); }
+      .ev .desc { font-size: 13px; }
+      .ev .sentence {
+        margin-top: 4px; font-size: 14px; background: var(--bg); border: 1px solid var(--line);
+        border-radius: 8px; padding: 6px 10px; word-break: break-all; line-height: 1.6;
+      }
+      .ev .sentence b { color: var(--accent-2); }
+      .ev .sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+      .ev .award { font-weight: 600; }
+      .ev .award.plus { color: var(--accent-2); }
+      .ev .r-chip {
+        display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px;
+        background: rgba(255,122,198,0.16); color: var(--devil); margin-right: 4px;
+      }
+      .ev .score-now { font-size: 11px; color: var(--muted); white-space: nowrap; }
+      .d-loading { color: var(--muted); padding: 20px 0; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <!-- 密碼登入 -->
+    <div id="gate">
+      <form class="gate-box" id="gate-form">
+        <h1>戰況數據後台</h1>
+        <p>此頁面僅供管理員使用，請輸入密碼。</p>
+        <input id="pw" type="password" placeholder="管理員密碼" autocomplete="current-password" />
+        <button type="submit" id="pw-btn">進入</button>
+        <div class="gate-err" id="gate-err"></div>
+      </form>
+    </div>
+
+    <!-- 報表主體 -->
+    <div class="wrap hidden" id="dash">
+      <header class="bar">
+        <div>
+          <h1>戰況數據報表</h1>
+          <div class="sub" id="updated">—</div>
+        </div>
+        <div class="controls">
+          <select id="range">
+            <option value="7">近 7 天</option>
+            <option value="14" selected>近 14 天</option>
+            <option value="30">近 30 天</option>
+            <option value="90">近 90 天</option>
+          </select>
+          <button class="ghost-btn" id="refresh">重新整理</button>
+          <button class="ghost-btn" id="logout">登出</button>
+        </div>
+      </header>
+
+      <div class="cards" id="cards"></div>
+
+      <section class="panel">
+        <h2>每日對戰場數</h2>
+        <p class="hint">依 UTC+8 分日；顯示所選區間內每天完成的對戰數。</p>
+        <div class="legend">
+          <span><i style="background:var(--accent)"></i>對戰場數</span>
+        </div>
+        <div class="chart" id="chart-matches"></div>
+      </section>
+
+      <section class="panel">
+        <h2>遊玩人數變化</h2>
+        <p class="hint">活躍玩家＝當天有出賽的相異玩家；新增玩家＝當天首度出賽的玩家。</p>
+        <div class="legend">
+          <span><i style="background:var(--accent-2)"></i>活躍玩家</span>
+          <span><i style="background:var(--warn)"></i>新增玩家</span>
+        </div>
+        <div class="chart" id="chart-players"></div>
+      </section>
+
+      <section class="panel">
+        <h2>最近對戰</h2>
+        <p class="hint">最近幾場的比分、模式、回合數與時長。</p>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>時間</th><th>對戰</th><th class="num">比分</th>
+                <th>勝方</th><th>模式</th><th class="num">回合</th>
+                <th class="num">時長</th><th class="num">Δ積分</th>
+              </tr>
+            </thead>
+            <tbody id="matches-body"></tbody>
+          </table>
+        </div>
+        <div class="empty hidden" id="matches-empty">尚無對戰紀錄</div>
+      </section>
+    </div>
+
+    <!-- 單場詳情彈窗 -->
+    <div class="overlay hidden" id="detail-overlay">
+      <div class="modal" id="detail-modal">
+        <button class="modal-close" id="detail-close" aria-label="關閉">✕</button>
+        <div id="detail-content"><div class="d-loading">載入中…</div></div>
+      </div>
+    </div>
+
+    <script src="/admin.js"></script>
+  </body>
+</html>

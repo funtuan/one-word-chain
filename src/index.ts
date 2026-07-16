@@ -1,8 +1,12 @@
 import { Game } from "./game";
 import {
+  getAdminOverview,
+  getDailyStats,
   getLeaderboard,
+  getMatchDetail,
   getPlayer,
   getPlayerRank,
+  getRecentMatches,
   registerPlayer,
 } from "./db";
 import type { PlayerStats } from "./types";
@@ -15,6 +19,40 @@ interface Env {
   OPENROUTER_API_KEY: string;
   DB: D1Database;
   ASSETS: Fetcher;
+  ADMIN_PASSWORD?: string; // 後台報表密碼（Worker secret；未設定則後台停用）
+}
+
+// 常數時間字串比對：先各自 SHA-256 再逐位元組比對，避免長度／提早返回洩漏資訊。
+async function timingSafeEqual(a: string, b: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const [ha, hb] = await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(a)),
+    crypto.subtle.digest("SHA-256", enc.encode(b)),
+  ]);
+  const va = new Uint8Array(ha);
+  const vb = new Uint8Array(hb);
+  let diff = 0;
+  for (let i = 0; i < va.length; i++) diff |= va[i] ^ vb[i];
+  return diff === 0;
+}
+
+// 後台請求授權：驗證 x-admin-key 標頭（或 ?key=）。
+// 通過回 null；否則回應對應錯誤（未設定密碼 503 / 未授權 401）。
+async function requireAdmin(
+  request: Request,
+  env: Env,
+): Promise<Response | null> {
+  const configured = env.ADMIN_PASSWORD;
+  if (!configured) {
+    return Response.json({ error: "admin_not_configured" }, { status: 503 });
+  }
+  const url = new URL(request.url);
+  const key =
+    request.headers.get("x-admin-key") ?? url.searchParams.get("key") ?? "";
+  if (!(await timingSafeEqual(key, configured))) {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
+  return null;
 }
 
 // ---- 配對用 Durable Object（單一全域實例）----
@@ -199,6 +237,62 @@ export default {
       const id = env.LOBBY.idFromName(`lobby:${mode}`);
       const stub = env.LOBBY.get(id);
       return stub.fetch(request);
+    }
+
+    // ---- 隱藏後台：戰況數據報表（需管理員密碼）----
+
+    // 後台頁面外殼（本身不含資料，資料一律由下方 API 依密碼授權）
+    if (url.pathname === "/admin" || url.pathname === "/admin/") {
+      return env.ASSETS.fetch(new Request(new URL("/admin.html", url), request));
+    }
+
+    // 後台資料 API：/api/admin/*（全部需通過 requireAdmin）
+    if (url.pathname.startsWith("/api/admin/")) {
+      const denied = await requireAdmin(request, env);
+      if (denied) return denied;
+
+      const now = Date.now();
+      // 日期分桶時區位移（分鐘），預設 UTC+8；限制在 ±14 小時內
+      const offsetMin = Math.max(
+        -840,
+        Math.min(840, Number(url.searchParams.get("tz")) || 480),
+      );
+
+      if (url.pathname === "/api/admin/overview") {
+        return Response.json(await getAdminOverview(env.DB, now));
+      }
+
+      if (url.pathname === "/api/admin/daily") {
+        const days = Math.min(
+          90,
+          Math.max(1, Number(url.searchParams.get("days")) || 14),
+        );
+        return Response.json(await getDailyStats(env.DB, days, offsetMin, now));
+      }
+
+      if (url.pathname === "/api/admin/recent-matches") {
+        const limit = Math.min(
+          100,
+          Math.max(1, Number(url.searchParams.get("limit")) || 20),
+        );
+        const matches = await getRecentMatches(env.DB, limit, offsetMin);
+        return Response.json({ matches });
+      }
+
+      // 單場詳情：完整事件流，還原「他們比了什麼」
+      if (url.pathname === "/api/admin/match") {
+        const matchId = url.searchParams.get("id") ?? "";
+        if (!matchId) {
+          return Response.json({ error: "id_required" }, { status: 400 });
+        }
+        const detail = await getMatchDetail(env.DB, matchId);
+        if (!detail) {
+          return Response.json({ error: "not_found" }, { status: 404 });
+        }
+        return Response.json(detail);
+      }
+
+      return Response.json({ error: "not_found" }, { status: 404 });
     }
 
     // 對戰 WebSocket： /game/:id/ws
