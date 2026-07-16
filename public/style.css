@@ -54,7 +54,67 @@ body {
   align-items: center;
   justify-content: center;
   text-align: center;
+  gap: 22px;
+  padding-bottom: 56px; /* 給底部 GitHub icon 留空間，避免跟次要功能區重疊 */
+}
+.start-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+/* 開始頁的區塊：模式選擇／開始遊玩，各自成一個寬度一致的群組，彼此視覺上分開 */
+.start-section {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.mode-section {
+  background: var(--panel);
+  border: 1px solid var(--panel-2);
+  border-radius: 18px;
+  padding: 14px 16px 12px;
+}
+.play-section {
   gap: 12px;
+}
+.play-section .primary {
+  width: 100%;
+  font-size: 16px;
+}
+.start-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
+.start-divider::before,
+.start-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--panel-2);
+}
+/* 次要功能：跟上面的「開始遊玩」區塊不同層級，縮小成一排小按鈕 */
+.start-utility {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.util-btn {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--panel-2);
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 999px;
 }
 .gh-link {
   position: absolute;
@@ -90,17 +150,17 @@ body {
   line-height: 1.6;
 }
 
-/* 模式切換 */
+/* 模式切換（放在 .mode-section 卡片內，用較深底色跟卡片本身的底色區分開） */
 .mode-switch {
   display: flex;
   gap: 8px;
-  background: var(--panel);
-  border: 1px solid var(--panel-2);
+  background: var(--panel-2);
   border-radius: 16px;
   padding: 6px;
-  margin-top: 6px;
+  width: 100%;
 }
 .mode-opt {
+  flex: 1;
   background: transparent;
   color: var(--muted);
   border-radius: 12px;
@@ -117,14 +177,12 @@ body {
 .mode-desc {
   color: var(--muted);
   font-size: 13px;
-  max-width: 300px;
   line-height: 1.6;
   min-height: 38px;
   margin: 0;
 }
 .devil-help {
   color: var(--devil) !important;
-  margin-top: -4px !important;
 }
 
 /* 配對頁 */
@@ -684,45 +742,102 @@ button.sm {
   line-height: 1.5;
 }
 
-/* 記分板 */
+/* 記分板（N 人座位列表） */
 .scoreboard {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 8px 8px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0 8px;
 }
-.score {
+.seats {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.seat-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 76px;
+  min-width: 72px;
+  max-width: 108px;
+  padding: 8px 10px 6px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 2px solid transparent;
+  transition: border-color 0.25s ease, opacity 0.25s ease;
 }
-.score .label {
-  font-size: 13px;
+.seats.many .seat-card {
+  min-width: 60px;
+  padding: 6px 6px 4px;
+}
+.seat-card.turn {
+  border-color: var(--accent);
+}
+.seat-card.me .sc-num {
+  color: var(--accent);
+}
+.seat-card:not(.me) .sc-num {
+  color: var(--accent-2);
+}
+.seat-card.offline {
+  opacity: 0.6;
+}
+.seat-card.out {
+  opacity: 0.4;
+}
+.sc-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
   color: var(--muted);
   max-width: 96px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.score .num {
-  font-size: 34px;
+.sc-num {
+  font-size: 26px;
   font-weight: 800;
+  line-height: 1.15;
 }
-.score.me .num {
-  color: var(--accent);
+.seats.many .sc-num {
+  font-size: 22px;
 }
-.score.opp .num {
-  color: var(--accent-2);
-}
-.score .elo {
-  font-size: 12px;
+.sc-elo {
+  font-size: 11px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-  margin-top: 2px;
   white-space: nowrap;
 }
-.vs .badge {
+.sc-tag {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sc-tag.out {
+  background: rgba(255, 107, 107, 0.18);
+  color: var(--danger);
+}
+.turn-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.round-badge {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel);
+  padding: 5px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.turn-row .badge {
   display: inline-block;
   padding: 6px 12px;
   border-radius: 999px;
@@ -730,7 +845,7 @@ button.sm {
   font-size: 13px;
   color: var(--muted);
 }
-.vs .badge.your-turn {
+.turn-row .badge.your-turn {
   background: var(--accent);
   color: #fff;
 }
@@ -784,7 +899,7 @@ button.sm {
   opacity: 0.85;
   transition: opacity 0.25s ease, transform 0.25s ease;
 }
-.score.opp .quota .pip {
+.seat-card:not(.me) .quota .pip {
   background: var(--accent-2);
 }
 .quota .pip.used {
@@ -1380,4 +1495,214 @@ button.sm {
 }
 .award.opp {
   color: var(--accent-2);
+}
+
+/* ---------- v3 好友房 ---------- */
+
+/* 開始頁：開房間 / 加入房間 雙欄（寬度已由父層 .play-section 統一控制） */
+.room-actions {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+.room-actions .room-act {
+  flex: 1;
+}
+/* 次要動作按鈕：比 .primary 低一階，但仍是實色按鈕（不是 .ghost 那種可有可無的感覺），
+   讓「開房間／加入房間」讀起來跟「開始配對」是同一層級的三個選項 */
+.secondary {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+/* 加入房間 */
+.join-box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 4px;
+  max-width: 360px;
+  width: 100%;
+  margin: 0 auto;
+}
+.room-code-input {
+  text-align: center;
+  font-size: 24px;
+  letter-spacing: 8px;
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+}
+.join-info {
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ji-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+}
+.ji-k {
+  color: var(--muted);
+}
+.ji-v {
+  font-weight: 600;
+}
+.ji-note {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--accent-2);
+}
+
+/* 等待室 */
+#screen-room {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 14px;
+}
+.room-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.room-code-label {
+  font-size: 13px;
+  color: var(--muted);
+}
+.room-code {
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: 8px;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  user-select: all;
+}
+.room-mode {
+  font-size: 15px;
+  font-weight: 600;
+}
+.room-rule {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.room-players {
+  width: 100%;
+  max-width: 340px;
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 10px 14px;
+}
+.rp-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--panel-2);
+}
+.rp-list {
+  display: flex;
+  flex-direction: column;
+}
+.rp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--panel-2);
+  font-size: 15px;
+}
+.rp-row:last-child {
+  border-bottom: none;
+}
+.rp-row.off {
+  opacity: 0.55;
+}
+.rp-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rp-row.me .rp-name {
+  color: var(--accent);
+  font-weight: 700;
+}
+.rp-tag {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.rp-tag.host {
+  background: rgba(108, 140, 255, 0.18);
+  color: var(--accent);
+}
+.rp-tag.you {
+  background: rgba(53, 208, 165, 0.15);
+  color: var(--accent-2);
+}
+.room-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  min-height: 18px;
+}
+#screen-room .primary,
+#screen-room .ghost {
+  width: 100%;
+  max-width: 340px;
+}
+
+/* 結束畫面：全排名 */
+.ranking {
+  margin-top: 12px;
+  background: var(--panel-2);
+  border-radius: 14px;
+  padding: 6px 12px;
+  text-align: left;
+}
+.rank-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 15px;
+}
+.rank-row:last-child {
+  border-bottom: none;
+}
+.rank-row.me .rk-name {
+  color: var(--accent);
+  font-weight: 700;
+}
+.rank-row.out {
+  opacity: 0.55;
+}
+.rk-medal {
+  width: 28px;
+  text-align: center;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.rk-name {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rk-score {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }

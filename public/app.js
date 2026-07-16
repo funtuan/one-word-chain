@@ -8,6 +8,8 @@ const el = {
     start: $("screen-start"),
     help: $("screen-help"),
     leaderboard: $("screen-leaderboard"),
+    join: $("screen-join"),
+    room: $("screen-room"),
     matching: $("screen-matching"),
     game: $("screen-game"),
   },
@@ -33,6 +35,8 @@ const el = {
   lbMe: $("lb-me"),
   btnLeave: $("btn-leave"),
   btnPlay: $("btn-play"),
+  btnCreateRoom: $("btn-create-room"),
+  btnJoinRoom: $("btn-join-room"),
   btnHelp: $("btn-help"),
   btnHelpBack: $("btn-help-back"),
   btnHelpPlay: $("btn-help-play"),
@@ -40,23 +44,37 @@ const el = {
   modeDesc: $("mode-desc"),
   btnDevilHelp: $("btn-devil-help"),
   helpDevil: $("help-devil"),
+  // 加入房間
+  btnJoinBack: $("btn-join-back"),
+  joinCode: $("join-code"),
+  joinError: $("join-error"),
+  joinInfo: $("join-info"),
+  jiMode: $("ji-mode"),
+  jiPlayers: $("ji-players"),
+  jiRule: $("ji-rule"),
+  jiNote: $("ji-note"),
+  btnJoinGo: $("btn-join-go"),
+  // 等待室
+  roomCode: $("room-code"),
+  roomMode: $("room-mode"),
+  roomRule: $("room-rule"),
+  roomCount: $("room-count"),
+  roomList: $("room-list"),
+  roomHint: $("room-hint"),
+  btnShareRoom: $("btn-share-room"),
+  btnStartRoom: $("btn-start-room"),
+  btnLeaveRoom: $("btn-leave-room"),
   matchingSub: $("matching-sub"),
   matchingInvite: $("matching-invite"),
   btnCopyLink: $("btn-copy-link"),
   btnCancelMatch: $("btn-cancel-match"),
   btnRetryMatch: $("btn-retry-match"),
   btnSound: $("btn-sound"),
-  labelMe: $("label-me"),
-  labelOpp: $("label-opp"),
-  eloMe: $("elo-me"),
-  eloOpp: $("elo-opp"),
+  seats: $("seats"),
+  roundBadge: $("round-badge"),
   restriction: $("restriction"),
   restrictionToast: $("restriction-toast"),
   matchingText: $("matching-text"),
-  scoreMe: $("score-me"),
-  scoreOpp: $("score-opp"),
-  quotaMe: $("quota-me"),
-  quotaOpp: $("quota-opp"),
   turnBadge: $("turn-badge"),
   timerBar: $("timer-bar"),
   timerText: $("timer-text"),
@@ -78,14 +96,21 @@ const TURN_MS = 20000;
 const POPUP_MS = 3000;
 // 超時額度：每人每場預設次數（與後端一致，僅供無資料時的顯示上限）
 const TIMEOUT_QUOTA = 2;
+const ROOM_CODE_LEN = 6;
 
 const state = {
   ws: null,
-  you: null, // "p1" | "p2"
-  names: { p1: "玩家 1", p2: "玩家 2" }, // 雙方顯示名稱
-  ratings: { p1: 1000, p2: 1000 }, // 雙方 ELO 積分
+  you: null, // 自己的座位（0..N-1）；null = 觀戰或未入局
+  spectator: false,
+  source: "match", // "match" 隨機配對 | "room" 好友房
+  rule: { kind: "target", target: 5 },
+  round: 0,
+  seats: [], // SeatInfo[]：{ name, rating, connected, eliminated }
+  scores: [],
+  timeoutQuota: [],
   mode: "normal", // "normal" | "devil"
-  timeoutQuota: { p1: TIMEOUT_QUOTA, p2: TIMEOUT_QUOTA }, // 雙方剩餘超時額度
+  menuMode: "normal", // 開始頁選單目前選的模式；進出好友房不會改到這個，離開房間時用它復原 state.mode
+  room: null, // 等待室狀態（roomState 訊息）
   restrictions: [], // 惡魔模式目前生效的限制（隨字數累加）
   restrictionToastTimer: null, // 限制提示彈窗的自動關閉計時
   buffering: false, // 限制提示彈窗阻擋中（此時鎖住操作、計時顯示維持滿格）
@@ -95,21 +120,22 @@ const state = {
   canChallenge: false,
   selectedIndex: null,
   deadline: 0,
-  target: 5,
   status: "idle",
   timerRAF: null,
   resultTimer: null,
   timeoutFxTimer: null,
-  gameId: null, // 目前對局 id（供斷線重連回同一場）
+  gameId: null, // 目前對局 id（供斷線重連回同一場；好友房為 "room:房號"）
   reconnectTries: 0, // 斷線後已重連次數
+  reconnectTimer: null, // onclose 排定的自動重連 timer（取消配對時要記得清掉）
   keepalive: null, // 保活計時器
   matching: false, // 是否正在（新的）配對等待中
   waitStart: 0, // 開始等待對手的時間戳
   waitTimer: null, // 配對等待秒數更新計時器
   wasMyTurn: false, // 上一次是否輪到自己（用來偵測「換我了」以發通知）
-  lastMove: null, // 對方上一手（供挑戰提示顯示被挑戰的字）
+  lastMove: null, // 上一手（供挑戰提示顯示被挑戰的字）
   judgeTimer: null, // 挑戰評分的前端逾時保護
   iAmReady: false, // 結算停留階段我是否已按「準備好了」
+  pendingJoinCode: null, // 從連結（?room=CODE）進來、待加入的房號
 };
 
 // 等待超過此秒數仍未配到人 -> 顯示「邀請朋友」提示
@@ -123,6 +149,10 @@ let audioCtx = null;
 const MODE_DESC = {
   normal: "一般規則，輪流一字接龍",
   devil: "回合開局 1 個限制，每接 5 個字再加 1 個（可同時多個），輪流一字接龍",
+};
+const MODE_LABEL = {
+  normal: "😇 普通模式",
+  devil: "😈 惡魔模式",
 };
 
 // ---------- 畫面切換 ----------
@@ -310,8 +340,15 @@ async function saveName() {
   me.name = name;
   saveIdentity();
   renderPlayerBar();
-  show("start");
   await register();
+  // 從連結進來、還沒設暱稱的新玩家：命名完成後接回加入房間流程
+  if (state.pendingJoinCode) {
+    const code = state.pendingJoinCode;
+    state.pendingJoinCode = null;
+    openJoinScreen(code);
+    return;
+  }
+  show("start");
 }
 
 // ---------- 排行榜 ----------
@@ -410,8 +447,7 @@ async function play() {
   show("matching");
   state.matching = true;
   resetMatchingUi();
-  const modeLabel = state.mode === "devil" ? "😈 惡魔模式" : "😇 普通模式";
-  el.matchingText.textContent = `${modeLabel} · 配對中…`;
+  el.matchingText.textContent = `${MODE_LABEL[state.mode]} · 配對中…`;
   try {
     const res = await fetch(`/api/matchmake?mode=${state.mode}`);
     const { gameId } = await res.json();
@@ -421,6 +457,182 @@ async function play() {
     el.matchingText.textContent = "配對失敗，請重試";
     setTimeout(() => show("start"), 1500);
   }
+}
+
+// ---------- 好友房：開房 / 加入 / 等待室 ----------
+async function createRoom() {
+  if (!me.name) {
+    openNameScreen(false);
+    return;
+  }
+  ensureAudio();
+  el.btnCreateRoom.disabled = true;
+  el.btnCreateRoom.textContent = "建立中…";
+  try {
+    const res = await fetch("/api/room", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: state.mode, playerId: me.id }),
+    });
+    if (!res.ok) throw new Error("create failed");
+    const { code } = await res.json();
+    connect(`room:${code}`);
+  } catch {
+    window.alert("建立房間失敗，請稍後再試");
+  } finally {
+    el.btnCreateRoom.disabled = false;
+    el.btnCreateRoom.textContent = "🏠 開房間";
+  }
+}
+
+function normalizeRoomCode(raw) {
+  return (raw || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^0-9A-Z]/g, "")
+    .slice(0, ROOM_CODE_LEN);
+}
+
+function openJoinScreen(prefill) {
+  show("join");
+  el.joinError.hidden = true;
+  el.joinInfo.hidden = true;
+  el.btnJoinGo.disabled = true;
+  el.joinCode.value = prefill || "";
+  if (prefill) {
+    fetchJoinInfo();
+  } else {
+    setTimeout(() => el.joinCode.focus(), 50);
+  }
+}
+
+let joinInfoSeq = 0; // 避免慢速回應覆蓋新輸入的查詢結果
+async function fetchJoinInfo() {
+  const code = normalizeRoomCode(el.joinCode.value);
+  el.joinError.hidden = true;
+  el.joinInfo.hidden = true;
+  el.btnJoinGo.disabled = true;
+  if (code.length !== ROOM_CODE_LEN) return;
+  const seq = ++joinInfoSeq;
+  let info = null;
+  try {
+    const res = await fetch(`/api/room/info?code=${encodeURIComponent(code)}`);
+    if (res.ok) info = await res.json();
+  } catch {}
+  if (seq !== joinInfoSeq) return;
+  if (!info || !info.ok) {
+    el.joinError.textContent = "找不到這個房間，請確認房號（房間閒置過久會自動解散）。";
+    el.joinError.hidden = false;
+    return;
+  }
+  el.jiMode.textContent = MODE_LABEL[info.mode] || info.mode;
+  el.jiPlayers.textContent = `${info.playerCount} / ${info.maxPlayers} 人`;
+  el.jiRule.textContent = `共 ${info.rounds} 回合，總分排名（不計積分）`;
+  let note = "";
+  if (info.status !== "waiting") {
+    note = "對局進行中，加入後先觀戰，下一場可入座。";
+  } else if (info.playerCount >= info.maxPlayers) {
+    note = "房間已滿，加入後為觀戰。";
+  }
+  el.jiNote.textContent = note;
+  el.jiNote.hidden = !note;
+  el.joinInfo.hidden = false;
+  el.btnJoinGo.disabled = false;
+}
+
+function joinRoom() {
+  const code = normalizeRoomCode(el.joinCode.value);
+  if (code.length !== ROOM_CODE_LEN) return;
+  ensureAudio();
+  el.btnJoinGo.disabled = true;
+  connect(`room:${code}`);
+}
+
+// 等待室渲染（roomState 訊息）
+function renderRoomState() {
+  const r = state.room;
+  if (!r) return;
+  el.roomCode.textContent = r.code;
+  el.roomMode.textContent = MODE_LABEL[r.mode] || r.mode;
+  const rounds = r.rule && r.rule.kind === "rounds" ? r.rule.rounds : 5;
+  el.roomRule.textContent = `共 ${rounds} 回合，總分排名，不計積分`;
+  el.roomCount.textContent = `${r.players.length}/${r.maxPlayers}`;
+  el.roomList.innerHTML = r.players
+    .map((p, i) => {
+      const cls = ["rp-row", i === r.you ? "me" : "", p.connected ? "" : "off"]
+        .filter(Boolean)
+        .join(" ");
+      const tags = [
+        p.host ? `<span class="rp-tag host">👑 房主</span>` : "",
+        i === r.you ? `<span class="rp-tag you">你</span>` : "",
+        p.connected ? "" : `<span class="rp-tag off">斷線</span>`,
+      ].join("");
+      return `<div class="${cls}"><span class="rp-name">${escapeHtml(p.name)}</span>${tags}</div>`;
+    })
+    .join("");
+
+  const isSpec = r.you === null;
+  el.btnStartRoom.hidden = !r.isHost;
+  if (r.isHost) {
+    const enough = r.players.length >= r.minPlayers;
+    el.btnStartRoom.disabled = !enough;
+    el.btnStartRoom.textContent = enough
+      ? `開始遊戲（${r.players.length} 人）`
+      : `開始遊戲（至少 ${r.minPlayers} 人）`;
+  }
+  const hostEntry = r.players.find((p) => p.host);
+  if (hostEntry && !hostEntry.connected) {
+    el.roomHint.textContent = "房主連線中斷，等待重新連線…（逾時房間會自動解散）";
+  } else if (isSpec) {
+    el.roomHint.textContent = "房間已滿，你目前是觀戰者；下一場開打前有空位就能入座。";
+  } else if (r.isHost) {
+    el.roomHint.textContent =
+      r.players.length < r.minPlayers
+        ? "把邀請連結傳給好友，人到齊就能開始！"
+        : "人到齊了就按「開始遊戲」！";
+  } else {
+    el.roomHint.textContent = "等待房主開始遊戲…";
+  }
+}
+
+// 邀請連結：手機優先用系統分享，桌面複製到剪貼簿
+async function shareRoomLink() {
+  const code = state.room ? state.room.code : null;
+  if (!code) return;
+  const link = `${location.origin}/?room=${code}`;
+  const text = `來玩一字接龍！房號 ${code}，點連結加入：`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: "一字接龍", text, url: link });
+      return;
+    } catch {
+      /* 使用者取消分享 -> 落回複製 */
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(link);
+    el.btnShareRoom.textContent = "已複製 ✓";
+  } catch {
+    el.btnShareRoom.textContent = link;
+  }
+  setTimeout(() => (el.btnShareRoom.textContent = "📋 複製邀請連結"), 2000);
+}
+
+// 離開等待室（房主離開 = 解散房間）
+function leaveRoom() {
+  if (state.room && state.room.isHost && state.room.players.length > 1) {
+    const ok = window.confirm("你是房主，離開後房間會解散，確定嗎？");
+    if (!ok) return;
+  }
+  send({ type: "leave" });
+  resetGameState();
+  show("start");
+}
+
+// 房主按「開始遊戲」
+function startRoom() {
+  send({ type: "startRoom" });
+  el.btnStartRoom.disabled = true;
 }
 
 // 重置配對畫面的附屬元件（秒數、邀請提示）到初始狀態
@@ -458,8 +670,11 @@ function cancelMatch() {
   const gameId = state.gameId;
   const mode = state.mode;
   state.matching = false;
+  state.status = "idle"; // 否則計時器 rAF 迴圈會判斷仍在 playing/sent 而永遠繼續跑
+  cancelAnimationFrame(state.timerRAF);
   stopWaitTimer();
   clearInterval(state.keepalive);
+  clearTimeout(state.reconnectTimer); // 避免 onclose 排定的自動重連稍後還打開一條新連線
   state.gameId = null;
   forgetGame();
   if (state.ws) {
@@ -469,7 +684,8 @@ function cancelMatch() {
     } catch {}
     state.ws = null;
   }
-  if (gameId) {
+  el.btnRetryMatch.hidden = true;
+  if (gameId && !gameId.startsWith("room:")) {
     fetch(
       `/api/cancel?mode=${mode}&gameId=${encodeURIComponent(gameId)}`,
     ).catch(() => {});
@@ -480,6 +696,7 @@ function cancelMatch() {
 // 重連用盡後，玩家手動重試連回同一場
 function retryConnect() {
   if (!state.gameId) return;
+  clearTimeout(state.reconnectTimer);
   state.reconnectTries = 0;
   el.btnRetryMatch.hidden = true;
   el.matchingText.textContent = "重新連線中…";
@@ -527,20 +744,23 @@ function connect(gameId) {
   ws.onclose = () => {
     clearInterval(state.keepalive);
     if (state.status === "over") return;
+    // 結算彈窗（挑戰中／回合結算）可能還開著：先關掉，否則它會蓋住底下的配對／
+    // 重試畫面，尤其「挑戰中」畫面完全沒有按鈕，會把玩家卡死在看不到出口的地方。
+    hideOverlay();
     // 進入重連流程：關掉主動配對的等待秒數／邀請提示
     state.matching = false;
     stopWaitTimer();
     el.matchingSub.hidden = true;
     el.matchingInvite.hidden = true;
-    // 非正常中斷：本設計「斷線即判負」，因此嘗試連回同一場，
-    // 取回自己敗北的結果並顯示（而非停在「連線中斷」）。
+    // 非正常中斷：嘗試連回同一場（好友房有重連寬限；隨機配對取回敗北結果）
     if ((state.reconnectTries || 0) < RECONNECT_MAX && state.gameId) {
       state.reconnectTries = (state.reconnectTries || 0) + 1;
       show("matching");
       el.btnCancelMatch.hidden = false;
       el.btnRetryMatch.hidden = true;
       el.matchingText.textContent = "連線中斷，重新連線中…";
-      setTimeout(() => connect(state.gameId), RECONNECT_DELAY);
+      clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = setTimeout(() => connect(state.gameId), RECONNECT_DELAY);
     } else {
       // 重連用盡：提供「重試」與「取消」兩個出口，不再停在死畫面
       el.matchingText.textContent = "連線中斷";
@@ -568,27 +788,32 @@ function handle(msg) {
   switch (msg.type) {
     case "waiting":
       el.matchingText.textContent = "等待對手加入…";
+      show("matching");
       // 只有主動配對（非斷線重連）時才顯示等待秒數與邀請提示
       if (state.matching) startWaitTimer();
+      break;
+    case "roomState":
+      showRoomState(msg);
+      break;
+    case "roomClosed":
+      showRoomClosed(msg);
       break;
     case "start":
       state.matching = false;
       stopWaitTimer();
       state.you = msg.you;
-      state.target = msg.target;
+      state.spectator = msg.you === null;
+      state.source = msg.source;
+      state.rule = msg.rule;
+      state.round = msg.round;
+      state.seats = msg.seats;
       state.mode = msg.mode;
-      if (msg.names) state.names = msg.names;
-      if (msg.ratings) state.ratings = msg.ratings;
-      el.labelMe.textContent = myName();
-      el.labelOpp.textContent = oppName();
-      el.eloMe.textContent = `${state.ratings[state.you]} 分`;
-      el.eloOpp.textContent = `${state.ratings[other(state.you)]} 分`;
       hideOverlay();
       hideRestrictionToast(); // 清掉上一回合可能殘留的緩衝狀態
       applyRound(msg);
       show("game");
       // 回合開局：跳出本回合起始限制的提示彈窗（阻擋 3 秒）
-      if (state.restrictions.length) {
+      if (state.restrictions.length && !msg.lastMove) {
         showRestrictionToast(state.restrictions, true);
       }
       break;
@@ -597,6 +822,13 @@ function handle(msg) {
       break;
     case "timeoutExtend":
       showTimeoutExtend(msg);
+      break;
+    case "timeoutSkip":
+      showTimeoutSkip(msg);
+      break;
+    case "presence":
+      state.seats = msg.seats;
+      renderSeats();
       break;
     case "judging":
       showJudging(msg);
@@ -621,6 +853,42 @@ function handle(msg) {
   }
 }
 
+// 進等待室（開房、加入、rematch 重置都走這裡）
+function showRoomState(msg) {
+  state.matching = false;
+  stopWaitTimer();
+  state.room = msg;
+  state.source = "room";
+  state.mode = msg.mode;
+  state.you = msg.you;
+  state.spectator = msg.you === null;
+  state.status = "room";
+  state.iAmReady = false;
+  hideOverlay();
+  hideRestrictionToast();
+  cancelAnimationFrame(state.timerRAF);
+  document.title = BASE_TITLE;
+  renderRoomState();
+  show("room");
+}
+
+function showRoomClosed(msg) {
+  const text =
+    msg.reason === "host_left" ? "房主已離開，房間解散" : "房間閒置過久，已自動解散";
+  state.status = "idle";
+  forgetGame();
+  if (state.ws) {
+    try {
+      state.ws.onclose = null;
+      state.ws.close();
+    } catch {}
+    state.ws = null;
+  }
+  resetGameState();
+  show("start");
+  window.alert(text);
+}
+
 function applyRound(msg) {
   clearJudgeTimer(); // 進入新回合狀態，解除評分逾時保護
   state.iAmReady = false;
@@ -629,6 +897,7 @@ function applyRound(msg) {
   state.canChallenge = msg.canChallenge;
   state.lastMove = msg.lastMove || null;
   state.deadline = msg.deadline;
+  state.scores = msg.scores;
   state.allowedPositions =
     msg.allowedPositions === undefined ? null : msg.allowedPositions;
   if (Array.isArray(msg.restrictions)) state.restrictions = msg.restrictions;
@@ -641,22 +910,74 @@ function applyRound(msg) {
   state.selectedIndex = null;
   el.charInput.value = "";
 
-  el.scoreMe.textContent = msg.scores[state.you];
-  el.scoreOpp.textContent = msg.scores[other(state.you)];
-
   if (msg.timeoutQuota) state.timeoutQuota = msg.timeoutQuota;
-  renderQuota();
-
+  renderSeats();
+  renderRoundBadge();
   renderSentence(msg.lastMove);
   updateControls();
   startTimer();
   notifyTurnChange();
 }
 
+// ---------- 記分板（N 人座位列表） ----------
+function quotaPipsHtml(left) {
+  const remain = Math.max(0, Math.min(TIMEOUT_QUOTA, left ?? TIMEOUT_QUOTA));
+  let pips = "";
+  for (let i = 0; i < TIMEOUT_QUOTA; i++) {
+    pips += `<span class="pip${i < remain ? "" : " used"}"></span>`;
+  }
+  return `<span class="quota-ico">⏳</span>${pips}`;
+}
+
+function renderSeats() {
+  if (!state.seats.length) {
+    el.seats.innerHTML = "";
+    return;
+  }
+  el.seats.classList.toggle("many", state.seats.length > 3);
+  el.seats.innerHTML = state.seats
+    .map((sk, i) => {
+      const cls = ["seat-card"];
+      if (i === state.you) cls.push("me");
+      if (i === state.currentPlayer && state.status !== "over") cls.push("turn");
+      if (sk.eliminated) cls.push("out");
+      else if (!sk.connected) cls.push("offline");
+      const name = i === state.you ? "你" : escapeHtml(sk.name);
+      const tag = sk.eliminated
+        ? `<span class="sc-tag out">出局</span>`
+        : !sk.connected
+          ? `<span class="sc-tag off">斷線</span>`
+          : "";
+      const elo =
+        state.source === "match" && sk.rating != null
+          ? `<span class="sc-elo">${sk.rating} 分</span>`
+          : "";
+      return `<div class="${cls.join(" ")}">
+        <span class="sc-name" title="${escapeHtml(sk.name)}">${name}${tag}</span>
+        <span class="sc-num">${state.scores[i] ?? 0}</span>
+        ${elo}
+        <span class="quota" data-seat="${i}" title="超時額度">${quotaPipsHtml(state.timeoutQuota[i])}</span>
+      </div>`;
+    })
+    .join("");
+}
+
+function renderRoundBadge() {
+  if (state.rule && state.rule.kind === "rounds") {
+    el.roundBadge.textContent = `第 ${state.round} / ${state.rule.rounds} 回合`;
+    el.roundBadge.hidden = false;
+  } else {
+    el.roundBadge.hidden = true;
+  }
+}
+
 // ---------- 換我了：震動 / 音效 / 分頁標題提示 ----------
 const BASE_TITLE = "一字接龍";
 function notifyTurnChange() {
-  const myTurn = state.currentPlayer === state.you && state.status === "playing";
+  const myTurn =
+    state.you !== null &&
+    state.currentPlayer === state.you &&
+    state.status === "playing";
   if (myTurn && !state.wasMyTurn && !state.buffering) {
     // 剛換成我的回合：提醒玩家（背景分頁也不會錯過）
     try {
@@ -720,59 +1041,63 @@ function clearJudgeTimer() {
   state.judgeTimer = null;
 }
 
-// ---------- 超時額度 ----------
-// 以小圓點顯示雙方剩餘的超時額度（已用掉的變暗），保持低調不搶畫面。
-function renderQuota() {
-  const q = state.timeoutQuota || { p1: TIMEOUT_QUOTA, p2: TIMEOUT_QUOTA };
-  renderQuotaFor(el.quotaMe, q[state.you]);
-  renderQuotaFor(el.quotaOpp, q[other(state.you)]);
-}
-
-function renderQuotaFor(node, left) {
-  if (!node) return;
-  const remain = Math.max(0, Math.min(TIMEOUT_QUOTA, left ?? TIMEOUT_QUOTA));
-  let pips = "";
-  for (let i = 0; i < TIMEOUT_QUOTA; i++) {
-    pips += `<span class="pip${i < remain ? "" : " used"}"></span>`;
-  }
-  node.innerHTML = `<span class="quota-ico">⏳</span>${pips}`;
-  node.title = `超時額度：剩 ${remain} 次（超時自動 +10 秒）`;
-}
-
+// ---------- 超時 ----------
 // 超時用掉一次額度：更新顯示、延長計時，並播放小動畫（不搶畫面）。
 function showTimeoutExtend(msg) {
   if (msg.timeoutQuota) state.timeoutQuota = msg.timeoutQuota;
-  renderQuota();
+  renderSeats();
   state.deadline = msg.deadline;
   if (state.status === "playing" || state.status === "sent") startTimer();
 
   const mine = msg.player === state.you;
   // 被用掉額度的那一方，其額度指示器輕微脈動一下
-  const node = mine ? el.quotaMe : el.quotaOpp;
+  const node = el.seats.querySelector(`.quota[data-seat="${msg.player}"]`);
   if (node) {
     node.classList.remove("pulse");
     void node.offsetWidth; // 強制 reflow 以重播動畫
     node.classList.add("pulse");
   }
-  // 計時列上方浮出「+10 秒」小提示
-  const fx = el.timeoutFx;
-  if (fx) {
-    fx.textContent = mine ? "超時 +10 秒" : "對手超時 +10 秒";
-    fx.hidden = false;
-    fx.classList.remove("show");
-    void fx.offsetWidth;
-    fx.classList.add("show");
-    clearTimeout(state.timeoutFxTimer);
-    state.timeoutFxTimer = setTimeout(() => {
-      fx.classList.remove("show");
-      fx.hidden = true;
-    }, 1600);
+  showTimeoutFx(mine ? "超時 +10 秒" : `${seatName(msg.player)} 超時 +10 秒`);
+}
+
+// 好友房：超時無額度被跳過（3 人以上在局），輪到下一位
+function showTimeoutSkip(msg) {
+  if (msg.timeoutQuota) state.timeoutQuota = msg.timeoutQuota;
+  state.currentPlayer = msg.currentPlayer;
+  state.canChallenge = msg.canChallenge;
+  state.deadline = msg.deadline;
+  state.selectedIndex = null;
+  renderSeats();
+  renderSentence(state.lastMove);
+  updateControls();
+  if (state.status === "playing" || state.status === "sent") {
+    state.status = "playing";
+    startTimer();
   }
+  const mine = msg.player === state.you;
+  showTimeoutFx(mine ? "你超時了，本回合跳過" : `${seatName(msg.player)} 超時跳過`);
+  notifyTurnChange();
+}
+
+// 計時列上方浮出的小提示
+function showTimeoutFx(text) {
+  const fx = el.timeoutFx;
+  if (!fx) return;
+  fx.textContent = text;
+  fx.hidden = false;
+  fx.classList.remove("show");
+  void fx.offsetWidth;
+  fx.classList.add("show");
+  clearTimeout(state.timeoutFxTimer);
+  state.timeoutFxTimer = setTimeout(() => {
+    fx.classList.remove("show");
+    fx.hidden = true;
+  }, 1600);
 }
 
 // ---------- 句子渲染 ----------
 function renderSentence(lastMove) {
-  const myTurn = state.currentPlayer === state.you;
+  const myTurn = state.you !== null && state.currentPlayer === state.you;
   el.sentence.innerHTML = "";
   const chars = state.sentence;
 
@@ -787,9 +1112,7 @@ function renderSentence(lastMove) {
     const locked = allowed !== null && !allowed.includes(index);
     if (locked) slot.classList.add("locked");
     // 只要輪到我且位置未鎖就綁定點擊事件；緩衝（限制提示彈窗）期間由 selectSlot
-    // 的 buffering 判斷擋下、且彈窗遮罩本身也會吃掉點擊。若在此處以 buffering 為條件
-    // 而不綁事件，回合中新增限制走的渲染順序（先設 buffering 再渲染）會讓空格永遠沒綁
-    // 事件，提示消失後也無法點擊。
+    // 的 buffering 判斷擋下、且彈窗遮罩本身也會吃掉點擊。
     if (myTurn && !locked) {
       slot.classList.add("tappable");
       if (state.selectedIndex === index) slot.classList.add("selected");
@@ -922,7 +1245,11 @@ function previewChar() {
 // 輸入框變動：更新控制列並刷新放入預覽
 function onCharInput() {
   updateControls();
-  if (state.currentPlayer === state.you && state.status === "playing") {
+  if (
+    state.you !== null &&
+    state.currentPlayer === state.you &&
+    state.status === "playing"
+  ) {
     renderSentence(state.lastMove);
   }
 }
@@ -937,8 +1264,24 @@ function selectSlot(index) {
 
 // ---------- 控制列 ----------
 function updateControls() {
-  const myTurn = state.currentPlayer === state.you && state.status === "playing";
-  el.turnBadge.textContent = myTurn ? "輪到你" : "對手回合";
+  const myTurn =
+    state.you !== null &&
+    state.currentPlayer === state.you &&
+    state.status === "playing";
+
+  if (state.spectator) {
+    el.turnBadge.textContent = `👀 觀戰中 · ${seatName(state.currentPlayer)} 的回合`;
+    el.turnBadge.classList.remove("your-turn");
+    el.charInput.disabled = true;
+    el.btnSubmit.disabled = true;
+    el.btnChallenge.disabled = true;
+    el.hint.textContent = "你正在觀戰，下一場開打前有空位就能入座";
+    return;
+  }
+
+  el.turnBadge.textContent = myTurn
+    ? "輪到你"
+    : `${seatName(state.currentPlayer)} 的回合`;
   el.turnBadge.classList.toggle("your-turn", myTurn);
 
   // 限制提示彈窗阻擋中：鎖住所有操作（這 3 秒不計入計時）
@@ -969,11 +1312,11 @@ function updateControls() {
     }
     // 可挑戰時，順帶提醒被挑戰的字與風險
     if (state.canChallenge && state.lastMove && state.lastMove.char) {
-      hint += `，或挑戰對方的「${state.lastMove.char}」`;
+      hint += `，或挑戰${seatName(state.lastMove.player)}的「${state.lastMove.char}」`;
     }
     el.hint.textContent = hint;
   } else {
-    el.hint.textContent = "等待對手出手…";
+    el.hint.textContent = `等待${seatName(state.currentPlayer)}出手…`;
   }
 }
 
@@ -999,9 +1342,12 @@ function doChallenge() {
     firstTime = !localStorage.getItem(CHALLENGED_KEY);
   } catch {}
   if (firstTime) {
-    const char = state.lastMove && state.lastMove.char ? `「${state.lastMove.char}」` : "對方上一個字";
+    const char =
+      state.lastMove && state.lastMove.char
+        ? `「${state.lastMove.char}」`
+        : "上一位玩家的字";
     const ok = window.confirm(
-      `要挑戰${char}嗎？\n\nAI 裁判會判定對方剛接的字放進句子後合不合理：\n・不合理／多餘湊字 → 你得分\n・接得合理自然 → 對方得分\n\n確定要挑戰嗎？`,
+      `要挑戰${char}嗎？\n\nAI 裁判會判定剛接的字放進句子後合不合理：\n・不合理／多餘湊字 → 你得分\n・接得合理自然 → 對方得分\n\n確定要挑戰嗎？`,
     );
     if (!ok) return;
     try {
@@ -1037,11 +1383,11 @@ function showJudging(msg) {
   hideRestrictionToast();
   cancelAnimationFrame(state.timerRAF);
   clearInterval(state.resultTimer);
-  const who = msg.challenger === state.you ? "你" : "對手";
+  const who = msg.challenger === state.you ? "你" : seatName(msg.challenger);
   el.ovTitle.textContent = "挑戰中";
   el.ovBody.innerHTML = `
     <div class="spinner" style="margin:12px auto"></div>
-    <div class="judge-reason">${who}發起挑戰，AI 裁判評分中…</div>`;
+    <div class="judge-reason">${escapeHtml(who)}發起挑戰，AI 裁判評分中…</div>`;
   el.ovBtn.style.display = "none";
   el.ovBtn2.hidden = true;
   el.overlay.classList.add("show");
@@ -1069,8 +1415,10 @@ function showSettled(msg) {
   hideRestrictionToast();
   cancelAnimationFrame(state.timerRAF);
   clearInterval(state.resultTimer);
-  el.scoreMe.textContent = msg.scores[state.you];
-  el.scoreOpp.textContent = msg.scores[other(state.you)];
+  const before = state.scores.slice();
+  state.scores = msg.scores;
+  state.round = msg.round || state.round;
+  renderSeats();
 
   const timeout = msg.challengedChar === null;
   el.ovTitle.textContent = timeout ? "時間到" : "回合結算";
@@ -1107,28 +1455,32 @@ function showSettled(msg) {
 
   // 本回合加總
   let totalHtml;
-  if (!msg.awardedTo) {
+  if (msg.awardedTo === null || msg.awardedTo === undefined) {
     totalHtml = `<div class="sheet-total tie">本回合平手，不計分</div>`;
   } else {
     const mine = msg.awardedTo === state.you;
     totalHtml = `<div class="sheet-total ${mine ? "me" : "opp"}">本回合加總　${escapeHtml(sideLabel(msg.awardedTo))} +${msg.awardedPoints} 分</div>`;
   }
 
-  // 對雙方現有分數的影響（before → after）
-  const you = state.you;
-  const opp = other(you);
-  const afterYou = msg.scores[you];
-  const afterOpp = msg.scores[opp];
-  let beforeYou = afterYou;
-  let beforeOpp = afterOpp;
-  if (msg.awardedTo === you) beforeYou = afterYou - msg.awardedPoints;
-  else if (msg.awardedTo === opp) beforeOpp = afterOpp - msg.awardedPoints;
-
+  // 對所有座位現有分數的影響（before → after）
+  const ruleText =
+    state.rule && state.rule.kind === "rounds"
+      ? `第 ${msg.round} / ${state.rule.rounds} 回合 · 打完看總分排名`
+      : `先達 ${state.rule ? state.rule.target : 5} 分獲勝`;
+  const changeRows = state.seats
+    .map((sk, i) =>
+      changeRow(
+        sideLabel(i),
+        before[i] ?? msg.scores[i],
+        msg.scores[i],
+        msg.awardedTo === i,
+      ),
+    )
+    .join("");
   const changeHtml = `
     <div class="score-change">
-      <div class="sheet-head">分數變化（先達 ${state.target} 分獲勝）</div>
-      ${changeRow("你", beforeYou, afterYou, msg.awardedTo === you)}
-      ${changeRow(oppName(), beforeOpp, afterOpp, msg.awardedTo === opp)}
+      <div class="sheet-head">分數變化（${escapeHtml(ruleText)}）</div>
+      ${changeRows}
     </div>`;
 
   el.ovBody.innerHTML = `
@@ -1145,10 +1497,14 @@ function showSettled(msg) {
     <div class="settle-next" id="ov-next">${msg.final ? "即將公布結果…" : "即將開始下一回合…"}</div>
   `;
   // server 於 nextInMs 後自動推進，這裡以進度條倒數；並提供「準備好了」提前推進
-  el.ovBtn.style.display = "";
-  el.ovBtn.textContent = "準備好了 ›";
-  el.ovBtn.disabled = false;
-  el.ovBtn.onclick = sendReady;
+  if (state.spectator) {
+    el.ovBtn.style.display = "none";
+  } else {
+    el.ovBtn.style.display = "";
+    el.ovBtn.textContent = "準備好了 ›";
+    el.ovBtn.disabled = false;
+    el.ovBtn.onclick = sendReady;
+  }
   el.ovBtn2.hidden = true;
   el.overlay.classList.add("show");
 
@@ -1165,27 +1521,27 @@ function showSettled(msg) {
   });
 }
 
-// 結算停留：按「準備好了」提前推進；雙方到齊後端即取消倒數、直接進下一回合
+// 結算停留：按「準備好了」提前推進；全員到齊後端即取消倒數、直接進下一回合
 function sendReady() {
   if (state.iAmReady) return;
   state.iAmReady = true;
   send({ type: "ready" });
   el.ovBtn.disabled = true;
-  el.ovBtn.textContent = "已準備，等待對方…";
+  el.ovBtn.textContent = "已準備，等待其他玩家…";
   const nextEl = document.getElementById("ov-next");
-  if (nextEl) nextEl.textContent = "已準備，等待對方…";
+  if (nextEl) nextEl.textContent = "已準備，等待其他玩家…";
 }
 
 function showReadyState(msg) {
   if (state.status !== "result") return;
   const ready = msg.ready || [];
-  const oppReady = ready.includes(other(state.you));
   const nextEl = document.getElementById("ov-next");
   if (!nextEl) return;
   if (state.iAmReady) {
-    nextEl.textContent = "已準備，等待對方…";
-  } else if (oppReady) {
-    nextEl.textContent = "對方已準備好，按「準備好了」即可提前開始";
+    nextEl.textContent = "已準備，等待其他玩家…";
+  } else if (ready.length) {
+    const names = ready.map((i) => sideLabel(i)).join("、");
+    nextEl.textContent = `${names} 已準備好，按「準備好了」可提前開始`;
   }
 }
 
@@ -1194,28 +1550,68 @@ function showGameover(msg) {
   clearJudgeTimer();
   document.title = BASE_TITLE;
   hideRestrictionToast();
-  forgetGame(); // 對局已結束，清掉重連記錄
-  // 斷線者重連取回結果時，沒收過 start，需由 gameover 補上自己的身分與名稱
-  if (msg.you) state.you = msg.you;
-  if (msg.names) state.names = msg.names;
+  // 斷線者重連取回結果時，沒收過 start，需由 gameover 補上自己的身分與名單
+  if (msg.you !== undefined) {
+    state.you = msg.you;
+    state.spectator = msg.you === null;
+  }
+  if (msg.seats) state.seats = msg.seats;
+  if (msg.source) state.source = msg.source;
+  state.scores = msg.scores;
   // 結算彈窗位於遊戲畫面內，需確保遊戲畫面為 active 才顯示得出來（重連時可能停在配對畫面）
   show("game");
+  renderSeats();
   cancelAnimationFrame(state.timerRAF);
   clearInterval(state.resultTimer);
+
+  if (msg.source === "room") {
+    showRoomGameover(msg);
+    return;
+  }
+
+  // ---- 隨機配對（2 人）----
+  forgetGame(); // 對局已結束，清掉重連記錄
+
+  // 非參與者（結束後才點連結／換帳號連進來的第三方）：中性顯示，不判定輸贏
+  if (state.you === null) {
+    el.ovBtn.style.display = "";
+    el.ovTitle.textContent = "對局已結束";
+    const neutralReason =
+      msg.reason === "opponent_left" ? "其中一方已離線" : "已分出勝負";
+    el.ovBody.innerHTML = `
+      <div class="judge-reason">${escapeHtml(neutralReason)}</div>
+      <div class="judge-row">
+        ${state.seats
+          .map(
+            (sk, i) =>
+              `<div class="judge-item"><span class="k">${escapeHtml(sk.name)}</span><span class="v">${msg.scores[i] ?? 0}</span></div>`,
+          )
+          .join("")}
+      </div>
+    `;
+    el.ovBtn.textContent = "回主選單";
+    el.ovBtn.disabled = false;
+    el.ovBtn.onclick = backToStart;
+    el.ovBtn2.hidden = true;
+    el.overlay.classList.add("show");
+    return;
+  }
+
   el.ovBtn.style.display = "";
   const win = msg.winner === state.you;
   el.ovTitle.textContent = win ? "🎉 你贏了！" : "你輸了";
+  const oppSeat = state.you === 0 ? 1 : 0;
   const reason =
     msg.reason === "opponent_left"
-      ? `${oppName()} 已離線`
-      : `有人先達到 ${state.target} 分`;
+      ? `${seatName(oppSeat)} 已離線`
+      : `有人先達到 ${state.rule && state.rule.target ? state.rule.target : 5} 分`;
   let eloHtml = "";
-  if (msg.elo) {
+  if (msg.elo && state.you !== null) {
     eloHtml = `
       <div class="elo-change">
         <div class="elo-head">ELO 積分變化</div>
-        ${eloRow(myName(), msg.elo[state.you])}
-        ${eloRow(oppName(), msg.elo[other(state.you)])}
+        ${eloRow(seatName(state.you), msg.elo[state.you])}
+        ${eloRow(seatName(oppSeat), msg.elo[oppSeat])}
       </div>`;
   }
   // 首次勝利時提醒備份帳號代碼（換裝置不掉分）；只提醒一次
@@ -1230,8 +1626,12 @@ function showGameover(msg) {
   el.ovBody.innerHTML = `
     <div class="judge-reason">${escapeHtml(reason)}</div>
     <div class="judge-row">
-      <div class="judge-item"><span class="k">${escapeHtml(myName())}</span><span class="v">${msg.scores[state.you]}</span></div>
-      <div class="judge-item"><span class="k">${escapeHtml(oppName())}</span><span class="v">${msg.scores[other(state.you)]}</span></div>
+      ${state.seats
+        .map(
+          (sk, i) =>
+            `<div class="judge-item"><span class="k">${escapeHtml(sideLabel(i))}</span><span class="v">${msg.scores[i] ?? 0}</span></div>`,
+        )
+        .join("")}
     </div>
     ${eloHtml}
     ${backupHtml}
@@ -1258,11 +1658,75 @@ function showGameover(msg) {
   register();
 }
 
+// 好友房結束：全排名 + 同房再來一場（房主）；連線保持，等 roomState 進等待室
+function showRoomGameover(msg) {
+  const myEntry =
+    state.you !== null ? msg.ranking.find((r) => r.seat === state.you) : null;
+  if (!myEntry) {
+    el.ovTitle.textContent = "對局結束";
+  } else if (myEntry.rank === 1) {
+    el.ovTitle.textContent = "🏆 你是第 1 名！";
+  } else {
+    el.ovTitle.textContent = `第 ${myEntry.rank} 名`;
+  }
+
+  const reasonText =
+    msg.reason === "players_left"
+      ? "其他玩家都離開了，對局提前結束"
+      : `${state.rule && state.rule.kind === "rounds" ? state.rule.rounds : ""} 回合打完，總分排名`;
+
+  const medal = (rank) => (rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `${rank}`);
+  const rankingHtml = msg.ranking
+    .map((r) => {
+      const cls = ["rank-row", r.seat === state.you ? "me" : "", r.eliminated ? "out" : ""]
+        .filter(Boolean)
+        .join(" ");
+      return `<div class="${cls}">
+        <span class="rk-medal">${medal(r.rank)}</span>
+        <span class="rk-name">${escapeHtml(sideLabel(r.seat))}${r.eliminated ? `<span class="sc-tag out">中離</span>` : ""}</span>
+        <span class="rk-score">${r.score} 分</span>
+      </div>`;
+    })
+    .join("");
+
+  el.ovBody.innerHTML = `
+    <div class="judge-reason">${escapeHtml(reasonText)}</div>
+    <div class="ranking">${rankingHtml}</div>
+    <div class="settle-next">好友房不計 ELO 積分</div>
+    ${
+      msg.canRestart
+        ? ""
+        : `<div class="settle-next">房主可以開新的一場，留在這裡稍等…</div>`
+    }
+  `;
+  if (msg.canRestart) {
+    el.ovBtn.style.display = "";
+    el.ovBtn.textContent = "再來一場（同房）";
+    el.ovBtn.disabled = false;
+    el.ovBtn.onclick = () => {
+      send({ type: "restartRoom" });
+      el.ovBtn.disabled = true;
+      el.ovBtn.textContent = "重開中…";
+    };
+  } else {
+    el.ovBtn.style.display = "none";
+  }
+  el.ovBtn2.hidden = false;
+  el.ovBtn2.textContent = "離開房間";
+  el.ovBtn2.onclick = () => {
+    send({ type: "leave" });
+    resetGameState();
+    show("start");
+  };
+  el.overlay.classList.add("show");
+}
+
 // 清掉上一場的對局狀態（不重載頁面），供再玩一場／回主選單共用
 function resetGameState() {
   hideOverlay();
   stopWaitTimer();
   clearInterval(state.keepalive);
+  clearTimeout(state.reconnectTimer);
   cancelAnimationFrame(state.timerRAF);
   clearInterval(state.resultTimer);
   if (state.ws) {
@@ -1275,6 +1739,15 @@ function resetGameState() {
   forgetGame();
   state.status = "idle";
   state.you = null;
+  state.spectator = false;
+  state.source = "match";
+  state.mode = state.menuMode; // 離開好友房不應把它的模式帶進之後的隨機配對
+  state.rule = { kind: "target", target: 5 };
+  state.round = 0;
+  state.seats = [];
+  state.scores = [];
+  state.timeoutQuota = [];
+  state.room = null;
   state.sentence = [];
   state.restrictions = [];
   state.allowedPositions = null;
@@ -1292,11 +1765,18 @@ function resetGameState() {
   el.btnRetryMatch.hidden = true;
 }
 
-// 對戰中主動離開：確認後關閉連線（後端視為斷線 -> 對方判勝），回主選單
+// 對戰中主動離開：確認後通知後端（好友房=出局、隨機配對=判負），回主選單
 function leaveGame() {
   if (state.status === "over") return;
-  const ok = window.confirm("離開將直接判負，確定要離開嗎？");
+  const text =
+    state.source === "room"
+      ? state.spectator
+        ? "要離開觀戰嗎？"
+        : "離開將直接出局（分數保留在計分板），確定要離開嗎？"
+      : "離開將直接判負，確定要離開嗎？";
+  const ok = window.confirm(text);
   if (!ok) return;
+  send({ type: "leave" });
   resetGameState(); // 內含關閉連線（onclose 已解除，不會重連）
   show("start");
 }
@@ -1319,21 +1799,25 @@ function hideOverlay() {
   el.ovBtn2.hidden = true;
 }
 
-// 把本回合結算拆成條列項目：每項標明加分歸屬（challenger／challenged）與分數。
+// 把本回合結算拆成條列項目：每項標明加分歸屬（挑戰者／被挑戰者）與分數。
 // notes 為不影響計分、但需說明的限制狀態。
 function scoreItems(msg, timeout) {
   const items = [];
   const notes = [];
 
   if (timeout) {
-    if (msg.awardedTo) {
-      items.push({ label: "超時未出手，對方得分", role: msg.awardedTo, pts: msg.awardedPoints });
+    if (msg.awardedTo !== null && msg.awardedTo !== undefined) {
+      items.push({
+        label: "超時未出手，對方得分",
+        seat: msg.awardedTo,
+        pts: msg.awardedPoints,
+      });
     }
     return { items, notes };
   }
 
   const challenger = msg.challenger;
-  const challenged = other(challenger);
+  const challenged = msg.challenged;
   const rs = msg.restrictions || [];
   const zhuyinR = rs.find((x) => x.kind === "zhuyin");
   const posR = rs.find((x) => x.kind === "pos");
@@ -1342,7 +1826,6 @@ function scoreItems(msg, timeout) {
 
   // 違規判定（惡魔模式的注音／詞性／語意限制任一違反）：
   // 直接判挑戰方 +3（多項違規也只計一次），忽略其他分數的加總。
-  // 無意義湊字／填充語助詞不再獨立判違規，改由句子合理度反映為負分。
   const zhuyinViolation = !!zhuyinR && msg.zhuyinMatch === false;
   const posViolationHit = !!posR && msg.posViolation === true;
   const meaningViolation = !!meaningR && msg.meaningChanged === false;
@@ -1351,7 +1834,7 @@ function scoreItems(msg, timeout) {
     // 只有第一個違規項計 +3，其餘僅列出原因（避免明細加總大於實得分數）
     let scored = false;
     const pushViolation = (label, devil) => {
-      items.push({ label, role: challenger, pts: scored ? 0 : 3, devil });
+      items.push({ label, seat: challenger, pts: scored ? 0 : 3, devil });
       scored = true;
     };
     if (zhuyinViolation) {
@@ -1367,17 +1850,19 @@ function scoreItems(msg, timeout) {
     }
     notes.push(
       items.length > 1
-        ? "違規直接判對方 +3（多項違規僅計一次），其他分數不計"
-        : "違規直接判對方 +3，其他分數不計",
+        ? "違規直接判挑戰方 +3（多項違規僅計一次），其他分數不計"
+        : "違規直接判挑戰方 +3，其他分數不計",
     );
     return { items, notes };
   }
 
   // 未違規：句子合理度（一律顯示）：正=句子合理→被挑戰方，負=不合理→挑戰方
   const aLabel = `句子合理度 · ${reasonWord(msg.sentenceScore)}`;
-  if (msg.sentenceScore > 0) items.push({ label: aLabel, role: challenged, pts: msg.sentenceScore });
-  else if (msg.sentenceScore < 0) items.push({ label: aLabel, role: challenger, pts: -msg.sentenceScore });
-  else items.push({ label: aLabel, role: null, pts: 0 });
+  if (msg.sentenceScore > 0)
+    items.push({ label: aLabel, seat: challenged, pts: msg.sentenceScore });
+  else if (msg.sentenceScore < 0)
+    items.push({ label: aLabel, seat: challenger, pts: -msg.sentenceScore });
+  else items.push({ label: aLabel, seat: null, pts: 0 });
 
   // 惡魔模式限制（未違規時的說明，逐一列出目前生效的限制）
   if (zhuyinR) {
@@ -1401,11 +1886,11 @@ function scoreItems(msg, timeout) {
 // 單一計分項目的一列
 function rowHtml(it) {
   let pts;
-  if (!it.role || it.pts === 0) {
+  if (it.seat === null || it.seat === undefined || it.pts === 0) {
     pts = `<span class="sr-pts zero">0 分</span>`;
   } else {
-    const mine = it.role === state.you;
-    pts = `<span class="sr-pts ${mine ? "me" : "opp"}">${escapeHtml(sideLabel(it.role))} +${it.pts}</span>`;
+    const mine = it.seat === state.you;
+    pts = `<span class="sr-pts ${mine ? "me" : "opp"}">${escapeHtml(sideLabel(it.seat))} +${it.pts}</span>`;
   }
   return `<div class="sheet-row${it.devil ? " devil" : ""}"><span class="sr-label">${it.label}</span>${pts}</div>`;
 }
@@ -1443,30 +1928,28 @@ function reasonWord(a) {
   if (a === -1) return "有點怪";
   return "很不合理";
 }
-function other(role) {
-  return role === "p1" ? "p2" : "p1";
+// 座位顯示名稱（自己以外）
+function seatName(seat) {
+  if (seat === null || seat === undefined) return "—";
+  const sk = state.seats[seat];
+  return (sk && sk.name) || `玩家 ${seat + 1}`;
 }
-function myName() {
-  return (state.you && state.names[state.you]) || "你";
-}
-function oppName() {
-  return (state.you && state.names[other(state.you)]) || "對手";
-}
-// 結算/明細用：自己顯示「你」，對手顯示其名稱
-function sideLabel(role) {
-  return role === state.you ? "你" : oppName();
+// 結算/明細用：自己顯示「你」，其他人顯示其名稱
+function sideLabel(seat) {
+  return seat === state.you ? "你" : seatName(seat);
 }
 function flashHint(text) {
   el.hint.textContent = text;
 }
 function escapeHtml(s) {
-  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
 // ---------- 事件綁定 ----------
 el.modeOpts.forEach((btn) => {
   btn.addEventListener("click", () => {
     state.mode = btn.dataset.mode;
+    state.menuMode = state.mode;
     el.modeOpts.forEach((b) => b.classList.toggle("active", b === btn));
     el.modeDesc.textContent = MODE_DESC[state.mode];
     // 惡魔模式時顯示「看惡魔模式怎麼玩」連結
@@ -1474,6 +1957,14 @@ el.modeOpts.forEach((btn) => {
   });
 });
 el.btnPlay.addEventListener("click", play);
+el.btnCreateRoom.addEventListener("click", createRoom);
+el.btnJoinRoom.addEventListener("click", () => {
+  if (!me.name) {
+    openNameScreen(false);
+    return;
+  }
+  openJoinScreen("");
+});
 el.btnHelp.addEventListener("click", () => show("help"));
 el.btnHelpBack.addEventListener("click", () => show("start"));
 el.btnHelpPlay.addEventListener("click", play);
@@ -1487,6 +1978,21 @@ el.btnDevilHelp.addEventListener("click", () => {
     );
   }
 });
+// 加入房間畫面
+el.btnJoinBack.addEventListener("click", () => show("start"));
+el.joinCode.addEventListener("input", () => {
+  const v = normalizeRoomCode(el.joinCode.value);
+  if (el.joinCode.value !== v) el.joinCode.value = v;
+  fetchJoinInfo();
+});
+el.joinCode.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !el.btnJoinGo.disabled) joinRoom();
+});
+el.btnJoinGo.addEventListener("click", joinRoom);
+// 等待室
+el.btnShareRoom.addEventListener("click", shareRoomLink);
+el.btnStartRoom.addEventListener("click", startRoom);
+el.btnLeaveRoom.addEventListener("click", leaveRoom);
 // 配對畫面：取消配對、複製遊戲連結、重試連線
 el.btnCancelMatch.addEventListener("click", cancelMatch);
 el.btnCopyLink.addEventListener("click", copyGameLink);
@@ -1543,20 +2049,62 @@ function boot() {
   loadSound();
   renderSoundToggle();
   loadIdentity();
+
+  // 連結加入：?room=CODE（好友傳來的邀請連結）。進站後立刻把它從網址移除——
+  // 若留著，之後任何一次重新整理都會被它蓋掉正在進行的對局重連（見下方 active 優先判斷）。
+  const roomParam = normalizeRoomCode(
+    new URLSearchParams(location.search).get("room") || "",
+  );
+  if (roomParam) {
+    try {
+      history.replaceState(null, "", location.pathname);
+    } catch {}
+  }
+
   if (!me.name) {
+    if (roomParam.length === ROOM_CODE_LEN) state.pendingJoinCode = roomParam;
     openNameScreen(false);
     return;
   }
   renderPlayerBar();
   register(); // 更新名稱並取回最新戰績
-  // 重新整理／斷線後若仍有進行中的對局，連回同一場（斷線判負者會在此取回結果）
+
+  // 重新整理／斷線後若仍有進行中的對局，優先連回同一場（斷線判負者會在此取回結果）；
+  // 這必須比邀請連結的加入流程優先，否則透過連結加入房間的玩家每次重整頁面
+  // 都會被導去「加入房間」畫面而不是直接重連回自己的座位。
   const active = loadActiveGame();
   if (active && active.gameId) {
     state.mode = active.mode || state.mode;
     show("matching");
     el.matchingText.textContent = "重新連線中…";
-    connect(active.gameId);
+    if (String(active.gameId).startsWith("room:")) {
+      // 好友房：先確認房間還在（房主離開會解散），避免連向已解散的房
+      verifyRoomThenReconnect(active.gameId);
+    } else {
+      connect(active.gameId);
+    }
+    return;
+  }
+
+  if (roomParam.length === ROOM_CODE_LEN) {
+    openJoinScreen(roomParam);
+    return;
+  }
+
+  show("start");
+}
+
+async function verifyRoomThenReconnect(gameId) {
+  const code = String(gameId).slice("room:".length);
+  let ok = false;
+  try {
+    const res = await fetch(`/api/room/info?code=${encodeURIComponent(code)}`);
+    ok = res.ok && (await res.json()).ok === true;
+  } catch {}
+  if (ok) {
+    connect(gameId);
   } else {
+    forgetGame();
     show("start");
   }
 }

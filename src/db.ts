@@ -1,5 +1,11 @@
-// D1 存取層：玩家帳號、排行榜、對戰紀錄、AI 花費、遊玩歷史事件
-import type { GameMode, PlayerIdentity, PlayerStats, Role } from "./types";
+// D1 存取層：玩家帳號、排行榜、對戰紀錄（隨機配對／好友房）、AI 花費、遊玩歷史事件
+import type {
+  GameMode,
+  GameSource,
+  PlayerIdentity,
+  PlayerStats,
+  Role,
+} from "./types";
 import type { JudgeUsage } from "./llm";
 import { eloOutcome, type PlayerElo } from "./elo";
 
@@ -171,6 +177,68 @@ export async function recordMatch(
   return { ratingDelta };
 }
 
+// ---- 好友房對戰紀錄（不計 ELO、不動 players 勝敗場；純分析用）----
+
+export interface RecordRoomMatchInput {
+  matchId: string; // 好友房每場的 sessionId（rematch 各自獨立）
+  roomCode: string;
+  mode: GameMode;
+  rounds: number; // 實際打了幾回合
+  playerCount: number;
+  reason: string; // rounds | players_left
+  players: {
+    id: string;
+    name: string;
+    seat: number;
+    score: number;
+    rank: number;
+    eliminated: boolean;
+  }[];
+  now: number;
+}
+
+// 寫入一場好友房紀錄與各座位名次（單一 batch）
+export async function recordRoomMatch(
+  db: D1Database,
+  input: RecordRoomMatchInput,
+): Promise<void> {
+  const stmts = [
+    db
+      .prepare(
+        `INSERT INTO room_matches
+           (id, room_code, mode, rounds, player_count, reason, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        input.matchId,
+        input.roomCode,
+        input.mode,
+        input.rounds,
+        input.playerCount,
+        input.reason,
+        input.now,
+      ),
+    ...input.players.map((p) =>
+      db
+        .prepare(
+          `INSERT INTO room_match_players
+             (match_id, player_id, name, seat, score, rank, eliminated)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          input.matchId,
+          p.id,
+          p.name,
+          p.seat,
+          p.score,
+          p.rank,
+          p.eliminated ? 1 : 0,
+        ),
+    ),
+  ];
+  await db.batch(stmts);
+}
+
 // ---- AI 花費 ----
 
 export interface RecordAiCostInput {
@@ -222,30 +290,33 @@ export type GameEventType =
   | "game_over";
 
 // 一筆歷史事件；除 gameId/seq/round/type/mode/now 外皆選填，依事件種類帶入。
+// 座位標籤：隨機配對維持 "p1"/"p2"（相容既有分析），好友房為 "s0".."sN"。
 export interface GameEventInput {
   gameId: string;
   seq: number;
   round: number;
   type: GameEventType;
   mode: GameMode;
+  source?: GameSource; // match | room（舊資料為 NULL，等同 match）
   now: number;
-  actor?: Role | null;
+  actor?: string | null;
   actorId?: string | null;
   char?: string | null;
   posIndex?: number | null;
   sentence?: string | null;
-  challenged?: Role | null;
+  challenged?: string | null;
   scoreA?: number | null;
   scoreB?: number | null;
   delta?: number | null;
-  awardedTo?: Role | null;
+  awardedTo?: string | null;
   awardedPoints?: number | null;
   restriction?: string | null;
   violation?: string | null;
   reason?: string | null;
   p1Score?: number;
   p2Score?: number;
-  winner?: Role | null;
+  scores?: number[] | null; // 好友房：全座位比分快照（JSON 存放）
+  winner?: string | null;
   detail?: Record<string, unknown> | null;
 }
 
@@ -257,12 +328,12 @@ export async function recordGameEvent(
   await db
     .prepare(
       `INSERT INTO game_events
-         (game_id, seq, round, type, mode, actor, actor_id,
+         (game_id, seq, round, type, mode, source, actor, actor_id,
           char, pos_index, sentence,
           challenged, score_a, score_b, delta, awarded_to, awarded_pts,
           restriction, violation, reason,
-          p1_score, p2_score, winner, detail, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          p1_score, p2_score, scores, winner, detail, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       e.gameId,
@@ -270,6 +341,7 @@ export async function recordGameEvent(
       e.round,
       e.type,
       e.mode,
+      e.source ?? "match",
       e.actor ?? null,
       e.actorId ?? null,
       e.char ?? null,
@@ -286,6 +358,7 @@ export async function recordGameEvent(
       e.reason ?? null,
       e.p1Score ?? 0,
       e.p2Score ?? 0,
+      e.scores ? JSON.stringify(e.scores) : null,
       e.winner ?? null,
       e.detail ? JSON.stringify(e.detail) : null,
       e.now,

@@ -44,12 +44,13 @@ CREATE INDEX IF NOT EXISTS idx_matches_game ON matches (game_id);
 --   game_over      整場結束（勝負、原因）
 CREATE TABLE IF NOT EXISTS game_events (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  game_id     TEXT NOT NULL,                 -- Game Durable Object id（整場穩定）
+  game_id     TEXT NOT NULL,                 -- 隨機配對：Game DO id；好友房：該場 sessionId
   seq         INTEGER NOT NULL,              -- 場內事件序號（1 起遞增，決定順序）
   round       INTEGER NOT NULL,              -- 回合編號（1 起）
   type        TEXT NOT NULL,                 -- 見上方 type 說明
   mode        TEXT NOT NULL,                 -- normal | devil（冗餘存放，省去 join）
-  actor       TEXT,                          -- 事件主體 p1 | p2 | NULL
+  source      TEXT,                          -- match | room（舊資料為 NULL，等同 match）
+  actor       TEXT,                          -- 事件主體：隨機配對 p1 | p2；好友房 s0..sN；NULL
   actor_id    TEXT,                          -- actor 的玩家 UUID（可 NULL）
 
   -- 接龍 move / 被挑戰字
@@ -69,15 +70,43 @@ CREATE TABLE IF NOT EXISTS game_events (
   reason      TEXT,                          -- AI 或系統說明文字
 
   -- 比分快照（事件後）
-  p1_score    INTEGER NOT NULL DEFAULT 0,
-  p2_score    INTEGER NOT NULL DEFAULT 0,
-  winner      TEXT,                          -- game_over：勝方 p1 | p2 | NULL
+  p1_score    INTEGER NOT NULL DEFAULT 0,    -- seat0 分數（好友房亦冗餘存放前兩座）
+  p2_score    INTEGER NOT NULL DEFAULT 0,    -- seat1 分數
+  scores      TEXT,                          -- 好友房：全座位比分快照（JSON 陣列，依 seat 排列）
+  winner      TEXT,                          -- game_over：勝方 p1 | p2 | s0..sN | NULL
   detail      TEXT,                          -- 長尾結構化資料（JSON）：finals / zhuyinMatch / posViolation / meaningChanged 等
   created_at  INTEGER NOT NULL               -- epoch ms
 );
 CREATE INDEX IF NOT EXISTS idx_game_events_game ON game_events (game_id, seq);
 CREATE INDEX IF NOT EXISTS idx_game_events_type ON game_events (type);
 CREATE INDEX IF NOT EXISTS idx_game_events_created ON game_events (created_at DESC);
+
+-- 好友房整場紀錄（每場結束寫一筆；rematch 以新 id 各自成場）
+-- 好友房不計 ELO、不動 players 勝敗場（可互刷，僅留作分析）。
+CREATE TABLE IF NOT EXISTS room_matches (
+  id           TEXT PRIMARY KEY,              -- 該場 sessionId（同房 rematch 各自獨立）
+  room_code    TEXT NOT NULL,                 -- 6 碼房號
+  mode         TEXT NOT NULL,                 -- normal | devil
+  rounds       INTEGER NOT NULL,              -- 實際打完的回合數
+  player_count INTEGER NOT NULL,
+  reason       TEXT NOT NULL,                 -- rounds（固定回合打完）| players_left（中離只剩 1 人）
+  created_at   INTEGER NOT NULL               -- epoch ms
+);
+CREATE INDEX IF NOT EXISTS idx_room_matches_created ON room_matches (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_room_matches_code ON room_matches (room_code);
+
+-- 好友房各座位的名次（每場每座位一筆）
+CREATE TABLE IF NOT EXISTS room_match_players (
+  match_id   TEXT NOT NULL,                   -- room_matches.id
+  player_id  TEXT NOT NULL,                   -- 玩家 UUID（匿名為空字串）
+  name       TEXT NOT NULL,
+  seat       INTEGER NOT NULL,                -- 座位（0 起）
+  score      INTEGER NOT NULL,
+  rank       INTEGER NOT NULL,                -- 名次（1 起；同分共列）
+  eliminated INTEGER NOT NULL DEFAULT 0,      -- 是否中離淘汰
+  PRIMARY KEY (match_id, seat)
+);
+CREATE INDEX IF NOT EXISTS idx_room_match_players_player ON room_match_players (player_id);
 
 -- AI 挑戰花費紀錄（每次挑戰結算寫一筆，含重試累計）
 CREATE TABLE IF NOT EXISTS ai_costs (

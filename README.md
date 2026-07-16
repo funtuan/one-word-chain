@@ -1,13 +1,16 @@
 # 一字接龍 (One Word Chain)
 
-雙人即時中文一字接龍。輪流在句子中放入單一中文字，任一方可對「對方上一手」發起挑戰，由 AI 裁判評分。先得 **5 分** 者勝，任一方斷線則直接結束。
+即時中文一字接龍。輪流在句子中放入單一中文字，可對「上一位玩家的那一手」發起挑戰，由 AI 裁判評分。
+
+- **隨機配對**（2 人）：先得 **5 分** 者勝，計 ELO；任一方斷線則直接結束。
+- **好友房**（v3，2~6 人）：開房拿 6 碼房號／邀請連結，好友點連結加入，房主按開始。固定 **5 回合**打完看總分排名；不計 ELO。支援觀戰（滿員／開局後點連結進入）、斷線 30 秒重連寬限、同房「再來一場」（紀錄各自獨立）。
 
 ## 技術架構
 
 - **Cloudflare Workers**：入口 `src/index.ts`，同時服務靜態前端（`public/`）與 API/WebSocket 路由。
 - **Durable Objects**：
   - `Lobby`（`src/index.ts`）：全域單一實例，負責隨機配對兩名玩家到同一房間。
-  - `Game`（`src/game.ts`）：每房一個實例，以 WebSocket Hibernation API 管理雙方連線、回合狀態、20 秒計時（DO alarm），並在挑戰時呼叫 LLM。
+  - `Game`（`src/game.ts`）：每房一個實例（好友房以 `room:房號` 為 DO name），以 WebSocket Hibernation API 管理各座位連線與觀戰者、回合狀態、20 秒計時與房間閒置回收（DO alarm），並在挑戰時呼叫 LLM。好友房等待室狀態也在此 DO，無獨立 Room DO。
 - **OpenRouter**：`openai/gpt-oss-20b` 進行挑戰結算，並透過 `provider` 欄位指定走最便宜的 Weights & Biases（WandB）服務（`src/llm.ts`）。需設定 `OPENROUTER_API_KEY` 秘密。
 - **D1**：`DB` 綁定，儲存玩家帳號、對戰紀錄與**遊玩歷史事件**（`schema.sql`、`src/db.ts`）。
 
@@ -23,7 +26,9 @@
 - **排行榜**：`GET /api/leaderboard` 依積分排序；開始畫面「🏆 排行榜」可查看。
 - **對戰畫面**：比分與結算改以雙方暱稱顯示（自己一律標示「你」）。
 
-相關 API：`POST /api/register`（upsert 暱稱）、`GET /api/leaderboard`、`GET /api/player?id=`。
+相關 API：`POST /api/register`（upsert 暱稱）、`GET /api/leaderboard`、`GET /api/player?id=`、`POST /api/room`（建好友房，回 6 碼房號）、`GET /api/room/info?code=`（加入前查房間模式／人數／狀態）。
+
+> **好友房不計 ELO、不計勝敗場**（避免互刷），僅寫入 `room_matches` / `room_match_players` 供分析。
 
 ### D1 初始化（首次部署前）
 
@@ -46,7 +51,10 @@ npx wrangler d1 execute one-word-chain --remote --file=./schema.sql   # 建表�
 
 ```bash
 npx wrangler d1 execute one-word-chain --remote --file=./migrations/0001_game_history.sql
+npx wrangler d1 execute one-word-chain --remote --file=./migrations/0002_friend_rooms.sql  # v3 好友房
 ```
+
+好友房事件同樣寫入 `game_events`：`source='room'`、`game_id` 為該場 sessionId（同房 rematch 各自成場）、`actor` 為 `s0..sN`、`scores` 欄存全座位比分 JSON。
 
 常用分析查詢範例：
 

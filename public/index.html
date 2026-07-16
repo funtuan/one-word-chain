@@ -78,24 +78,45 @@
           <span class="pb-stats" id="pb-stats"></span>
           <span class="pb-edit" aria-hidden="true">✎</span>
         </button>
-        <h1>一字接龍</h1>
-        <p class="tagline">輪流一字接龍，覺得不合理就挑戰！先得 5 分獲勝。</p>
-        <div class="mode-switch" role="group" aria-label="遊戲模式">
-          <button id="mode-normal" class="mode-opt active" data-mode="normal">
-            😇 普通模式
-          </button>
-          <button id="mode-devil" class="mode-opt" data-mode="devil">
-            😈 惡魔模式
+
+        <div class="start-header">
+          <h1>一字接龍</h1>
+          <p class="tagline">輪流一字接龍，覺得不合理就挑戰！先得 5 分獲勝。</p>
+        </div>
+
+        <!-- 模式：套用在下面所有開始遊玩的方式（配對／開房間） -->
+        <div class="start-section mode-section">
+          <div class="mode-switch" role="group" aria-label="遊戲模式">
+            <button id="mode-normal" class="mode-opt active" data-mode="normal">
+              😇 普通模式
+            </button>
+            <button id="mode-devil" class="mode-opt" data-mode="devil">
+              😈 惡魔模式
+            </button>
+          </div>
+          <p id="mode-desc" class="mode-desc">一般規則，輪流一字接龍。</p>
+          <button id="btn-devil-help" class="link-btn devil-help" hidden>
+            😈 看惡魔模式怎麼玩 ›
           </button>
         </div>
-        <p id="mode-desc" class="mode-desc">一般規則，輪流一字接龍。</p>
-        <button id="btn-devil-help" class="link-btn devil-help" hidden>
-          😈 看惡魔模式怎麼玩 ›
-        </button>
-        <button id="btn-play" class="primary">開始配對</button>
-        <button id="btn-leaderboard" class="ghost">🏆 排行榜</button>
-        <button id="btn-help" class="ghost">遊戲說明</button>
-        <button id="btn-sound" class="ghost">🔔 音效：開</button>
+
+        <!-- 開始遊玩：隨機配對是主要路徑；跟好友玩是另一組同層級的選項 -->
+        <div class="start-section play-section">
+          <button id="btn-play" class="primary">🎲 開始配對</button>
+          <div class="start-divider"><span>或跟好友一起玩</span></div>
+          <div class="room-actions">
+            <button id="btn-create-room" class="secondary room-act">🏠 開房間</button>
+            <button id="btn-join-room" class="secondary room-act">🔑 加入房間</button>
+          </div>
+        </div>
+
+        <!-- 次要功能：跟「開始遊玩」不同層級，縮小成一排小按鈕 -->
+        <div class="start-utility">
+          <button id="btn-leaderboard" class="util-btn">🏆 排行榜</button>
+          <button id="btn-help" class="util-btn">📖 遊戲說明</button>
+          <button id="btn-sound" class="util-btn">🔔 音效：開</button>
+        </div>
+
         <a
           class="gh-link"
           href="https://github.com/funtuan/one-word-chain"
@@ -221,6 +242,55 @@
         <div id="lb-me" class="lb-me" hidden></div>
       </section>
 
+      <!-- 加入房間（貼房號或點連結進來） -->
+      <section id="screen-join" class="screen">
+        <header class="help-header">
+          <button id="btn-join-back" class="back">‹ 返回</button>
+          <h2>🔑 加入房間</h2>
+        </header>
+        <div class="join-box">
+          <input
+            id="join-code"
+            class="name-input room-code-input"
+            type="text"
+            maxlength="6"
+            autocomplete="off"
+            autocapitalize="characters"
+            spellcheck="false"
+            placeholder="輸入 6 碼房號"
+          />
+          <p id="join-error" class="import-error" hidden></p>
+          <div id="join-info" class="join-info" hidden>
+            <div class="ji-row"><span class="ji-k">模式</span><span id="ji-mode" class="ji-v">—</span></div>
+            <div class="ji-row"><span class="ji-k">玩家</span><span id="ji-players" class="ji-v">—</span></div>
+            <div class="ji-row"><span class="ji-k">規則</span><span id="ji-rule" class="ji-v">—</span></div>
+            <p id="ji-note" class="ji-note" hidden></p>
+          </div>
+          <button id="btn-join-go" class="primary" disabled>加入房間</button>
+        </div>
+      </section>
+
+      <!-- 好友房等待室 -->
+      <section id="screen-room" class="screen">
+        <div class="room-head">
+          <div class="room-code-label">房號</div>
+          <div id="room-code" class="room-code">——————</div>
+          <div id="room-mode" class="room-mode">😇 普通模式</div>
+          <p id="room-rule" class="room-rule">共 5 回合，總分排名，不計積分</p>
+        </div>
+        <div class="room-players">
+          <div class="rp-head">
+            <span>玩家</span>
+            <span id="room-count">0/6</span>
+          </div>
+          <div id="room-list" class="rp-list"></div>
+        </div>
+        <p id="room-hint" class="room-hint"></p>
+        <button id="btn-share-room" class="ghost">📋 複製邀請連結</button>
+        <button id="btn-start-room" class="primary" hidden disabled>開始遊戲</button>
+        <button id="btn-leave-room" class="ghost">離開房間</button>
+      </section>
+
       <section id="screen-matching" class="screen">
         <div class="spinner"></div>
         <p id="matching-text">配對中…</p>
@@ -239,20 +309,10 @@
           <button id="btn-leave" class="leave-btn">✕ 離開</button>
         </div>
         <header class="scoreboard">
-          <div class="score me">
-            <span id="label-me" class="label">我</span>
-            <span id="score-me" class="num">0</span>
-            <span id="elo-me" class="elo"></span>
-            <span id="quota-me" class="quota" title="超時額度"></span>
-          </div>
-          <div class="vs">
+          <div id="seats" class="seats"></div>
+          <div class="turn-row">
+            <span id="round-badge" class="round-badge" hidden></span>
             <span id="turn-badge" class="badge">—</span>
-          </div>
-          <div class="score opp">
-            <span id="label-opp" class="label">對手</span>
-            <span id="score-opp" class="num">0</span>
-            <span id="elo-opp" class="elo"></span>
-            <span id="quota-opp" class="quota" title="超時額度"></span>
           </div>
         </header>
 
