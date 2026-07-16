@@ -38,7 +38,7 @@
                 <button id="btn-copy-code" class="ghost sm">複製</button>
               </div>
               <p class="acct-warn danger">
-                ⚠️ 此代碼等同你的帳號，任何人拿到都能登入你的帳號，<b>請勿外流</b>。
+                <span class="ic" data-ic="warn"></span> 此代碼等同你的帳號，任何人拿到都能登入你的帳號，<b>請勿外流</b>。
               </p>
             </div>
 
@@ -56,7 +56,7 @@
                   placeholder="例：OWC-AB23-CD45-EF67"
                 />
                 <p class="acct-warn danger">
-                  ⚠️ 登入後將切換到該帳號，<b>目前這個裝置上的帳號會被登出</b>（若沒有備份代碼將無法找回）。
+                  <span class="ic" data-ic="warn"></span> 登入後將切換到該帳號，<b>目前這個裝置上的帳號會被登出</b>（若沒有備份代碼將無法找回）。
                 </p>
                 <p id="import-error" class="import-error" hidden></p>
                 <button id="btn-import" class="primary" disabled>登入此帳號</button>
@@ -76,7 +76,7 @@
         <button id="player-bar" class="player-bar" hidden>
           <span class="pb-name" id="pb-name">—</span>
           <span class="pb-stats" id="pb-stats"></span>
-          <span class="pb-edit" aria-hidden="true">✎</span>
+          <span class="pb-edit ic" aria-hidden="true" data-ic="edit"></span>
         </button>
 
         <div class="start-header">
@@ -88,33 +88,33 @@
         <div class="start-section mode-section">
           <div class="mode-switch" role="group" aria-label="遊戲模式">
             <button id="mode-normal" class="mode-opt active" data-mode="normal">
-              😇 普通模式
+              <span class="ic" data-ic="smile"></span> 普通模式
             </button>
             <button id="mode-devil" class="mode-opt" data-mode="devil">
-              😈 惡魔模式
+              <span class="ic" data-ic="devil"></span> 惡魔模式
             </button>
           </div>
           <p id="mode-desc" class="mode-desc">一般規則，輪流一字接龍。</p>
           <button id="btn-devil-help" class="link-btn devil-help" hidden>
-            😈 看惡魔模式怎麼玩 ›
+            <span class="ic" data-ic="devil"></span> 看惡魔模式怎麼玩 ›
           </button>
         </div>
 
         <!-- 開始遊玩：隨機配對是主要路徑；跟好友玩是另一組同層級的選項 -->
         <div class="start-section play-section">
-          <button id="btn-play" class="primary">🎲 開始配對</button>
+          <button id="btn-play" class="primary"><span class="ic" data-ic="dice"></span> 開始配對</button>
           <div class="start-divider"><span>或跟好友一起玩</span></div>
           <div class="room-actions">
-            <button id="btn-create-room" class="secondary room-act">🏠 開房間</button>
-            <button id="btn-join-room" class="secondary room-act">🔑 加入房間</button>
+            <button id="btn-create-room" class="secondary room-act"><span class="ic" data-ic="home"></span> 開房間</button>
+            <button id="btn-join-room" class="secondary room-act"><span class="ic" data-ic="key"></span> 加入房間</button>
           </div>
         </div>
 
         <!-- 次要功能：跟「開始遊玩」不同層級，縮小成一排小按鈕 -->
         <div class="start-utility">
-          <button id="btn-leaderboard" class="util-btn">🏆 排行榜</button>
-          <button id="btn-help" class="util-btn">📖 遊戲說明</button>
-          <button id="btn-sound" class="util-btn">🔔 音效：開</button>
+          <button id="btn-leaderboard" class="util-btn"><span class="ic" data-ic="trophy"></span> 排行榜</button>
+          <button id="btn-help" class="util-btn"><span class="ic" data-ic="book"></span> 遊戲說明</button>
+          <button id="btn-sound" class="util-btn"><span class="ic" data-ic="bell"></span> 音效：開</button>
         </div>
 
         <a
@@ -140,21 +140,21 @@
         </header>
         <div class="help-body">
           <ul class="help-list">
-            <li><span class="hi">🎯</span><span>先得 <b>5 分</b> 獲勝</span></li>
-            <li><span class="hi">✍️</span><span>輪流插 <b>一個字</b> 到句子任意位置</span></li>
-            <li><span class="hi">⏱️</span><span>每回合限時 <b>20 秒</b></span></li>
+            <li><span class="hi ic" data-ic="target"></span><span>先得 <b>5 分</b> 獲勝</span></li>
+            <li><span class="hi ic" data-ic="edit"></span><span>輪流插 <b>一個字</b> 到句子任意位置</span></li>
+            <li><span class="hi ic" data-ic="timer"></span><span>每回合限時 <b>20 秒</b></span></li>
             <li>
-              <span class="hi">⏳</span>
+              <span class="hi ic" data-ic="hourglass"></span>
               <span>每場有 <b>2 次超時額度</b>，超時自動用一次 <b>+10 秒</b>；用完後超時對手 +3 分</span>
             </li>
             <li>
-              <span class="hi">🤔</span>
+              <span class="hi ic" data-ic="help"></span>
               <span>句子被接得不合理？按 <span class="pill danger">挑戰</span></span>
             </li>
           </ul>
 
           <div class="help-block">
-            <h3>⚖️ 挑戰後，AI 裁判看「對方剛接的那個字」</h3>
+            <h3><span class="ic" data-ic="scale"></span> 挑戰後，AI 裁判看「對方剛接的那個字」</h3>
             <div class="criteria">
               <div class="crit">
                 <div class="crit-name">接得合理又自然嗎？</div>
@@ -172,11 +172,11 @@
 
             <div class="verdict-cards">
               <div class="vc win">
-                <div class="vc-title">✅ 挑戰成立</div>
+                <div class="vc-title"><span class="ic" data-ic="check-circle"></span> 挑戰成立</div>
                 <div class="vc-desc">接得不合理／多餘湊字 → <b>你得分</b></div>
               </div>
               <div class="vc lose">
-                <div class="vc-title">❌ 挑戰不成立</div>
+                <div class="vc-title"><span class="ic" data-ic="x-circle"></span> 挑戰不成立</div>
                 <div class="vc-desc">接得合理自然 → <b>對方得分</b></div>
               </div>
             </div>
@@ -184,7 +184,7 @@
           </div>
 
           <div id="help-devil" class="help-block devil-block">
-            <h3>😈 惡魔模式</h3>
+            <h3><span class="ic" data-ic="devil"></span> 惡魔模式</h3>
             <p class="help-note dm-intro">
               在普通規則之上，每回合多了額外「限制」。<b>回合開局 1 個</b>，之後每多接
               <b>5 個字</b> 再疊加 1 個，可同時生效多個。違反限制 →
@@ -192,31 +192,31 @@
             </p>
             <div class="criteria">
               <div class="crit">
-                <div class="crit-name">📍 位置限制</div>
+                <div class="crit-name"><span class="ic" data-ic="pin"></span> 位置限制</div>
                 <div class="crit-desc">
                   每回合只開放 <b>一半</b> 的放入位置（最多 5 個），鎖住的位置不能放字。
                 </div>
               </div>
               <div class="crit">
-                <div class="crit-name">🔤 注音限制</div>
+                <div class="crit-name"><span class="ic" data-ic="type"></span> 注音限制</div>
                 <div class="crit-desc">
                   放入的字，其 <b>韻母</b> 必須是指定注音（例：ㄢ、ㄤ）。不符合對手 +3。
                 </div>
               </div>
               <div class="crit">
-                <div class="crit-name">🏷️ 詞性限制</div>
+                <div class="crit-name"><span class="ic" data-ic="tag"></span> 詞性限制</div>
                 <div class="crit-desc">
                   放入的字 <b>不可</b> 是指定詞性（例：動詞、名詞）。違反對手 +3。
                 </div>
               </div>
               <div class="crit">
-                <div class="crit-name">🔀 意思改變限制</div>
+                <div class="crit-name"><span class="ic" data-ic="shuffle"></span> 意思改變限制</div>
                 <div class="crit-desc">
                   放入的字必須讓句子 <b>含義改變</b>，沒有改變對手 +3。
                 </div>
               </div>
               <div class="crit">
-                <div class="crit-name">🙅 別太無聊限制</div>
+                <div class="crit-name"><span class="ic" data-ic="ban"></span> 別太無聊限制</div>
                 <div class="crit-desc">
                   <b>不可</b>放入無聊字：人稱代名詞（你我他）、語氣感嘆詞（嗎吧啊哈呢啦）、親屬稱謂（爸媽叔姨）。違反對手 +3。
                 </div>
@@ -234,7 +234,7 @@
       <section id="screen-leaderboard" class="screen">
         <header class="help-header">
           <button id="btn-lb-back" class="back">‹ 返回</button>
-          <h2>🏆 排行榜</h2>
+          <h2><span class="ic" data-ic="trophy"></span> 排行榜</h2>
         </header>
         <div class="lb-body">
           <div class="lb-head">
@@ -252,7 +252,7 @@
       <section id="screen-join" class="screen">
         <header class="help-header">
           <button id="btn-join-back" class="back">‹ 返回</button>
-          <h2>🔑 加入房間</h2>
+          <h2><span class="ic" data-ic="key"></span> 加入房間</h2>
         </header>
         <div class="join-box">
           <input
@@ -281,7 +281,7 @@
         <div class="room-head">
           <div class="room-code-label">房號</div>
           <div id="room-code" class="room-code">——————</div>
-          <div id="room-mode" class="room-mode">😇 普通模式</div>
+          <div id="room-mode" class="room-mode"><span class="ic" data-ic="smile"></span> 普通模式</div>
           <p id="room-rule" class="room-rule">共 5 回合，總分排名，不計積分</p>
         </div>
         <div class="room-players">
@@ -292,7 +292,7 @@
           <div id="room-list" class="rp-list"></div>
         </div>
         <p id="room-hint" class="room-hint"></p>
-        <button id="btn-share-room" class="ghost">📋 複製邀請連結</button>
+        <button id="btn-share-room" class="ghost"><span class="ic" data-ic="clipboard"></span> 複製邀請連結</button>
         <button id="btn-start-room" class="primary" hidden disabled>開始遊戲</button>
         <button id="btn-leave-room" class="ghost">離開房間</button>
       </section>
@@ -312,7 +312,7 @@
       <!-- 對戰 -->
       <section id="screen-game" class="screen">
         <div class="game-topbar">
-          <button id="btn-leave" class="leave-btn">✕ 離開</button>
+          <button id="btn-leave" class="leave-btn"><span class="ic" data-ic="x"></span> 離開</button>
         </div>
         <header class="scoreboard">
           <div id="seats" class="seats"></div>
@@ -363,6 +363,7 @@
       </div>
     </div>
 
+    <script src="/icons.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

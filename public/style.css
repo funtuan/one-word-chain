@@ -167,6 +167,24 @@ body {
   padding: 12px 18px;
   font-weight: 700;
 }
+/* 模式 icon 放大並各自帶品牌色，讓普通／惡魔一眼可辨 */
+.mode-opt .ico {
+  width: 1.4em;
+  height: 1.4em;
+}
+.mode-opt .ic {
+  vertical-align: -0.44em;
+  margin-right: 2px;
+}
+.mode-opt[data-mode="normal"] .ico {
+  color: var(--accent-2);
+}
+.mode-opt[data-mode="devil"] .ico {
+  color: var(--devil);
+}
+.mode-opt.active .ico {
+  color: #fff;
+}
 .mode-opt.active {
   background: linear-gradient(135deg, var(--accent), #8a6cff);
   color: #fff;

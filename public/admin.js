@@ -305,11 +305,11 @@ function renderRoomDetail({ match: m, events }) {
     <h2>好友房詳情</h2>
     <div class="d-meta">
       <span>${modeTag}</span>
-      <span>🏠 房號 ${esc(m.roomCode)}</span>
-      <span>👥 ${m.playerCount} 人</span>
-      <span>🔁 ${m.rounds} 回合</span>
-      <span>🏁 ${ROOM_REASON[m.reason] || esc(m.reason)}</span>
-      <span>🕑 ${t}</span>
+      <span>${window.icon("home")} 房號 ${esc(m.roomCode)}</span>
+      <span>${window.icon("users")} ${m.playerCount} 人</span>
+      <span>${window.icon("repeat")} ${m.rounds} 回合</span>
+      <span>${window.icon("flag")} ${ROOM_REASON[m.reason] || esc(m.reason)}</span>
+      <span>${window.icon("clock")} ${t}</span>
     </div>
     <div class="standings" style="margin-top:8px">${m.players
       .map((p) => {
@@ -365,20 +365,20 @@ function renderRoomEvent(e, seatName) {
   let sub = "";
 
   if (e.type === "round_start") {
-    icon = "🎬";
+    icon = window.icon("film");
     desc = `${who} 先手　種子詞`;
     sentence = `<div class="sentence">${esc(e.sentence || "")}</div>`;
     if (e.restriction) sub = `<div class="sub">${restrictionChips(e.restriction)}</div>`;
   } else if (e.type === "move") {
-    icon = "✍️";
+    icon = window.icon("edit");
     desc = `${who} 接上「<b style="color:var(--accent-2)">${esc(e.char || "")}</b>」`;
     sentence = `<div class="sentence">${sentenceHtml(e.sentence, e.char)}</div>`;
     const added = e.detail && e.detail.addedRestrictions;
     if (added && added.length) {
-      sub = `<div class="sub">新增限制：${added.map((k) => `<span class="r-chip">😈 ${R_LABEL[k] || k}</span>`).join("")}</div>`;
+      sub = `<div class="sub">新增限制：${added.map((k) => `<span class="r-chip">${window.icon("devil")} ${R_LABEL[k] || k}</span>`).join("")}</div>`;
     }
   } else if (e.type === "challenge") {
-    icon = "⚔️";
+    icon = window.icon("swords");
     const target = seatName(e.challenged);
     desc = `${who} 挑戰${esc(target)}的「${esc(e.char || "")}」`;
     const award = e.awardedTo
@@ -389,20 +389,20 @@ function renderRoomEvent(e, seatName) {
     if (e.reason) sub += `<div class="sub">${esc(e.reason)}</div>`;
     if (e.sentence) sentence = `<div class="sentence">${sentenceHtml(e.sentence, e.char)}</div>`;
   } else if (e.type === "timeout_extend") {
-    icon = "⏳";
+    icon = window.icon("hourglass");
     desc = `${who} 超時，用掉一次延長（+10 秒，不計分）`;
   } else if (e.type === "timeout") {
-    icon = "⏱️";
+    icon = window.icon("timer");
     const award = e.awardedTo ? `${esc(seatName(e.awardedTo))} +${e.awardedPts}` : "";
     desc = award
       ? `${who} 超時未出手 → <span class="award plus">${award}</span>`
       : `${who} 超時未出手`;
   } else if (e.type === "leave") {
-    icon = "🚪";
+    icon = window.icon("door");
     desc = `${who} 離開／斷線`;
     if (e.reason) sub = `<div class="sub">${esc(e.reason)}</div>`;
   } else if (e.type === "game_over") {
-    icon = "🏁";
+    icon = window.icon("flag");
     const winner = seatName(e.winner);
     desc = winner ? `本場結束 — ${esc(winner)} 勝` : "本場結束";
   } else {
@@ -431,8 +431,8 @@ function renderDetail({ match: m, events }) {
     </div>
     <div class="d-meta">
       <span>${modeTag}</span>
-      <span>🏆 ${winnerTxt}${reasonTxt}</span>
-      <span>🕑 ${t}</span>
+      <span>${window.icon("trophy")} ${winnerTxt}${reasonTxt}</span>
+      <span>${window.icon("clock")} ${t}</span>
       ${m.ratingDelta ? `<span>Δ積分 +${m.ratingDelta}</span>` : ""}
     </div>
   </div>`;
@@ -487,7 +487,7 @@ function restrictionChips(restriction) {
     .split(",")
     .map((k) => k.trim())
     .filter(Boolean)
-    .map((k) => `<span class="r-chip">😈 ${R_LABEL[k] || k}</span>`)
+    .map((k) => `<span class="r-chip">${window.icon("devil")} ${R_LABEL[k] || k}</span>`)
     .join("");
 }
 
@@ -502,20 +502,20 @@ function renderEvent(e, m) {
   let sub = "";
 
   if (e.type === "round_start") {
-    icon = "🎬";
+    icon = window.icon("film");
     desc = `${who} 先手　種子詞`;
     sentence = `<div class="sentence">${esc(e.sentence || "")}</div>`;
     if (e.restriction) sub = `<div class="sub">${restrictionChips(e.restriction)}</div>`;
   } else if (e.type === "move") {
-    icon = "✍️";
+    icon = window.icon("edit");
     desc = `${who} 接上「<b style="color:var(--accent-2)">${esc(e.char || "")}</b>」`;
     sentence = `<div class="sentence">${sentenceHtml(e.sentence, e.char)}</div>`;
     const added = e.detail && e.detail.addedRestrictions;
     if (added && added.length) {
-      sub = `<div class="sub">新增限制：${added.map((k) => `<span class="r-chip">😈 ${R_LABEL[k] || k}</span>`).join("")}</div>`;
+      sub = `<div class="sub">新增限制：${added.map((k) => `<span class="r-chip">${window.icon("devil")} ${R_LABEL[k] || k}</span>`).join("")}</div>`;
     }
   } else if (e.type === "challenge") {
-    icon = "⚔️";
+    icon = window.icon("swords");
     const target = e.challenged ? roleName(e.challenged, m) : "";
     desc = `${who} 挑戰${esc(target)}的「${esc(e.char || "")}」`;
     const award =
@@ -527,18 +527,18 @@ function renderEvent(e, m) {
     if (e.reason) sub += `<div class="sub">${esc(e.reason)}</div>`;
     if (e.sentence) sentence = `<div class="sentence">${sentenceHtml(e.sentence, e.char)}</div>`;
   } else if (e.type === "timeout_extend") {
-    icon = "⏳";
+    icon = window.icon("hourglass");
     desc = `${who} 超時，用掉一次延長（+10 秒，不計分）`;
   } else if (e.type === "timeout") {
-    icon = "⏱️";
+    icon = window.icon("timer");
     const award = e.awardedTo ? `${esc(roleName(e.awardedTo, m))} +${e.awardedPts}` : "";
     desc = `${who} 超時未出手 → <span class="award plus">${award}</span>`;
   } else if (e.type === "leave") {
-    icon = "🚪";
+    icon = window.icon("door");
     const winner = e.winner ? roleName(e.winner, m) : "";
     desc = `${who} 離開／斷線 → ${esc(winner)} 判勝`;
   } else if (e.type === "game_over") {
-    icon = "🏁";
+    icon = window.icon("flag");
     const winner = e.winner ? roleName(e.winner, m) : "";
     desc = `本場結束 — ${esc(winner)} 勝`;
   } else {

@@ -151,8 +151,8 @@ const MODE_DESC = {
   devil: "回合開局 1 個限制，每接 5 個字再加 1 個（可同時多個），輪流一字接龍",
 };
 const MODE_LABEL = {
-  normal: "😇 普通模式",
-  devil: "😈 惡魔模式",
+  normal: icon("smile") + " 普通模式",
+  devil: icon("devil") + " 惡魔模式",
 };
 
 // ---------- 畫面切換 ----------
@@ -447,7 +447,7 @@ async function play() {
   show("matching");
   state.matching = true;
   resetMatchingUi();
-  el.matchingText.textContent = `${MODE_LABEL[state.mode]} · 配對中…`;
+  el.matchingText.innerHTML = `${MODE_LABEL[state.mode]} · 配對中…`;
   try {
     const res = await fetch(`/api/matchmake?mode=${state.mode}`);
     const { gameId } = await res.json();
@@ -481,7 +481,7 @@ async function createRoom() {
     window.alert("建立房間失敗，請稍後再試");
   } finally {
     el.btnCreateRoom.disabled = false;
-    el.btnCreateRoom.textContent = "🏠 開房間";
+    el.btnCreateRoom.innerHTML = icon("home") + " 開房間";
   }
 }
 
@@ -525,7 +525,7 @@ async function fetchJoinInfo() {
     el.joinError.hidden = false;
     return;
   }
-  el.jiMode.textContent = MODE_LABEL[info.mode] || info.mode;
+  el.jiMode.innerHTML = MODE_LABEL[info.mode] || escapeHtml(info.mode);
   el.jiPlayers.textContent = `${info.playerCount} / ${info.maxPlayers} 人`;
   el.jiRule.textContent = `共 ${info.rounds} 回合，總分排名（不計積分）`;
   let note = "";
@@ -553,7 +553,7 @@ function renderRoomState() {
   const r = state.room;
   if (!r) return;
   el.roomCode.textContent = r.code;
-  el.roomMode.textContent = MODE_LABEL[r.mode] || r.mode;
+  el.roomMode.innerHTML = MODE_LABEL[r.mode] || escapeHtml(r.mode);
   const rounds = r.rule && r.rule.kind === "rounds" ? r.rule.rounds : 5;
   el.roomRule.textContent = `共 ${rounds} 回合，總分排名，不計積分`;
   el.roomCount.textContent = `${r.players.length}/${r.maxPlayers}`;
@@ -563,7 +563,7 @@ function renderRoomState() {
         .filter(Boolean)
         .join(" ");
       const tags = [
-        p.host ? `<span class="rp-tag host">👑 房主</span>` : "",
+        p.host ? `<span class="rp-tag host">${icon("crown")} 房主</span>` : "",
         i === r.you ? `<span class="rp-tag you">你</span>` : "",
         p.connected ? "" : `<span class="rp-tag off">斷線</span>`,
       ].join("");
@@ -615,7 +615,7 @@ async function shareRoomLink() {
   } catch {
     el.btnShareRoom.textContent = link;
   }
-  setTimeout(() => (el.btnShareRoom.textContent = "📋 複製邀請連結"), 2000);
+  setTimeout(() => (el.btnShareRoom.innerHTML = icon("clipboard") + " 複製邀請連結"), 2000);
 }
 
 // 離開等待室（房主離開 = 解散房間）
@@ -926,7 +926,7 @@ function quotaPipsHtml(left) {
   for (let i = 0; i < TIMEOUT_QUOTA; i++) {
     pips += `<span class="pip${i < remain ? "" : " used"}"></span>`;
   }
-  return `<span class="quota-ico">⏳</span>${pips}`;
+  return `<span class="quota-ico">${icon("hourglass")}</span>${pips}`;
 }
 
 function renderSeats() {
@@ -984,7 +984,7 @@ function notifyTurnChange() {
       navigator.vibrate && navigator.vibrate(80);
     } catch {}
     playBeep();
-    if (document.hidden) document.title = "🔔 輪到你了 – " + BASE_TITLE;
+    if (document.hidden) document.title = "● 輪到你了 – " + BASE_TITLE;
   }
   if (!myTurn) document.title = BASE_TITLE;
   state.wasMyTurn = myTurn;
@@ -1022,7 +1022,9 @@ function playBeep() {
 }
 function renderSoundToggle() {
   if (!el.btnSound) return;
-  el.btnSound.textContent = soundEnabled ? "🔔 音效：開" : "🔕 音效：關";
+  el.btnSound.innerHTML = soundEnabled
+    ? icon("bell") + " 音效：開"
+    : icon("bell-off") + " 音效：關";
 }
 function toggleSound() {
   soundEnabled = !soundEnabled;
@@ -1144,22 +1146,22 @@ function renderSentence(lastMove) {
 function restrictionHtml(r) {
   if (!r) return "";
   if (r.kind === "position") {
-    return `<span class="r-tag">😈 位置限制</span><span class="r-text">每回合只開放一半的放入位置（最多 5 個），鎖住的位置不能點。</span>`;
+    return `<span class="r-tag">${icon("devil")} 位置限制</span><span class="r-text">每回合只開放一半的放入位置（最多 5 個），鎖住的位置不能點。</span>`;
   }
   if (r.kind === "zhuyin") {
     const finals = (r.finals || [])
       .map((f) => `<b class="r-final">${escapeHtml(f)}</b>`)
       .join(" ");
-    return `<span class="r-tag">😈 注音限制</span><span class="r-text">放入的字字韻母須為 ${finals}，不符合對手 +3 分。</span>`;
+    return `<span class="r-tag">${icon("devil")} 注音限制</span><span class="r-text">放入的字字韻母須為 ${finals}，不符合對手 +3 分。</span>`;
   }
   if (r.kind === "pos" && r.pos) {
-    return `<span class="r-tag">😈 詞性限制</span><span class="r-text">放入的字不可是 <b class="r-final">${escapeHtml(r.pos)}</b>，違規對手 +3 分。</span>`;
+    return `<span class="r-tag">${icon("devil")} 詞性限制</span><span class="r-text">放入的字不可是 <b class="r-final">${escapeHtml(r.pos)}</b>，違規對手 +3 分。</span>`;
   }
   if (r.kind === "meaning") {
-    return `<span class="r-tag">😈 意思改變限制</span><span class="r-text">放入的字必須讓句子的<b class="r-final">含義改變</b>，沒有改變對手 +3 分。</span>`;
+    return `<span class="r-tag">${icon("devil")} 意思改變限制</span><span class="r-text">放入的字必須讓句子的<b class="r-final">含義改變</b>，沒有改變對手 +3 分。</span>`;
   }
   if (r.kind === "noboring") {
-    return `<span class="r-tag">😈 別太無聊限制</span><span class="r-text">不可放入無聊字：<b class="r-final">人稱代名詞</b>（你我他…）、<b class="r-final">語氣感嘆詞</b>（嗎吧啊哈呢啦…）、<b class="r-final">親屬稱謂</b>（爸媽叔姨…），違規對手 +3 分。</span>`;
+    return `<span class="r-tag">${icon("devil")} 別太無聊限制</span><span class="r-text">不可放入無聊字：<b class="r-final">人稱代名詞</b>（你我他…）、<b class="r-final">語氣感嘆詞</b>（嗎吧啊哈呢啦…）、<b class="r-final">親屬稱謂</b>（爸媽叔姨…），違規對手 +3 分。</span>`;
   }
   return "";
 }
@@ -1183,7 +1185,9 @@ function renderRestriction() {
 function showRestrictionToast(restrictions, opening) {
   const node = el.restrictionToast;
   if (!node || !restrictions || !restrictions.length) return;
-  const title = opening ? "😈 本回合限制" : "😈 新增限制！";
+  const title = opening
+    ? `${icon("devil")} 本回合限制`
+    : `${icon("devil")} 新增限制！`;
   const body = restrictions
     .map((r) => `<div class="r-item">${restrictionHtml(r)}</div>`)
     .join("");
@@ -1273,7 +1277,7 @@ function updateControls() {
     state.status === "playing";
 
   if (state.spectator) {
-    el.turnBadge.textContent = `👀 觀戰中 · ${seatName(state.currentPlayer)} 的回合`;
+    el.turnBadge.innerHTML = `${icon("eye")} 觀戰中 · ${escapeHtml(seatName(state.currentPlayer))} 的回合`;
     el.turnBadge.classList.remove("your-turn");
     el.charInput.disabled = true;
     el.btnSubmit.disabled = true;
@@ -1602,7 +1606,7 @@ function showGameover(msg) {
 
   el.ovBtn.style.display = "";
   const win = msg.winner === state.you;
-  el.ovTitle.textContent = win ? "🎉 你贏了！" : "你輸了";
+  el.ovTitle.innerHTML = win ? `${icon("party")} 你贏了！` : "你輸了";
   const oppSeat = state.you === 0 ? 1 : 0;
   const reason =
     msg.reason === "opponent_left"
@@ -1623,7 +1627,7 @@ function showGameover(msg) {
     showBackup = win && !!me.name && !localStorage.getItem(BACKUP_KEY);
   } catch {}
   const backupHtml = showBackup
-    ? `<button type="button" class="backup-tip" id="backup-tip-btn">💾 記得備份「帳號代碼」，換手機或瀏覽器都不會掉分 ›</button>`
+    ? `<button type="button" class="backup-tip" id="backup-tip-btn">${icon("save")} 記得備份「帳號代碼」，換手機或瀏覽器都不會掉分 ›</button>`
     : "";
 
   el.ovBody.innerHTML = `
@@ -1668,7 +1672,7 @@ function showRoomGameover(msg) {
   if (!myEntry) {
     el.ovTitle.textContent = "對局結束";
   } else if (myEntry.rank === 1) {
-    el.ovTitle.textContent = "🏆 你是第 1 名！";
+    el.ovTitle.innerHTML = `${icon("trophy")} 你是第 1 名！`;
   } else {
     el.ovTitle.textContent = `第 ${myEntry.rank} 名`;
   }
@@ -1678,7 +1682,14 @@ function showRoomGameover(msg) {
       ? "其他玩家都離開了，對局提前結束"
       : `${state.rule && state.rule.kind === "rounds" ? state.rule.rounds : ""} 回合打完，總分排名`;
 
-  const medal = (rank) => (rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `${rank}`);
+  const medal = (rank) =>
+    rank === 1
+      ? icon("medal", "ico-gold")
+      : rank === 2
+        ? icon("medal", "ico-silver")
+        : rank === 3
+          ? icon("medal", "ico-bronze")
+          : `${rank}`;
   const rankingHtml = msg.ranking
     .map((r) => {
       const cls = ["rank-row", r.seat === state.you ? "me" : "", r.eliminated ? "out" : ""]
@@ -1844,17 +1855,17 @@ function scoreItems(msg, timeout) {
     };
     if (zhuyinViolation) {
       const finals = escapeHtml((zhuyinR.finals || []).join(" "));
-      pushViolation(`😈 注音違規（不符 ${finals}）`, true);
+      pushViolation(`${icon("devil")} 注音違規（不符 ${finals}）`, true);
     }
     if (posViolationHit) {
       const pos = posR.pos ? escapeHtml(posR.pos) : "";
-      pushViolation(`😈 詞性違規（是${pos}）`, true);
+      pushViolation(`${icon("devil")} 詞性違規（是${pos}）`, true);
     }
     if (meaningViolation) {
-      pushViolation(`😈 意思改變違規（句意未改變）`, true);
+      pushViolation(`${icon("devil")} 意思改變違規（句意未改變）`, true);
     }
     if (noBoringViolation) {
-      pushViolation(`😈 別太無聊違規（放入禁止字）`, true);
+      pushViolation(`${icon("devil")} 別太無聊違規（放入禁止字）`, true);
     }
     notes.push(
       items.length > 1
@@ -1875,20 +1886,20 @@ function scoreItems(msg, timeout) {
   // 惡魔模式限制（未違規時的說明，逐一列出目前生效的限制）
   if (zhuyinR) {
     const finals = escapeHtml((zhuyinR.finals || []).join(" "));
-    notes.push(`😈 注音符合（${finals}），未加減分`);
+    notes.push(`${icon("devil")} 注音符合（${finals}），未加減分`);
   }
   if (posR) {
     const pos = posR.pos ? escapeHtml(posR.pos) : "";
-    notes.push(`😈 詞性符合（非${pos}），未加減分`);
+    notes.push(`${icon("devil")} 詞性符合（非${pos}），未加減分`);
   }
   if (meaningR) {
-    notes.push(`😈 句意有改變，未加減分`);
+    notes.push(`${icon("devil")} 句意有改變，未加減分`);
   }
   if (noBoringR) {
-    notes.push(`😈 未放入禁止字，未加減分`);
+    notes.push(`${icon("devil")} 未放入禁止字，未加減分`);
   }
   if (positionR) {
-    notes.push(`😈 位置限制不影響計分`);
+    notes.push(`${icon("devil")} 位置限制不影響計分`);
   }
 
   return { items, notes };
