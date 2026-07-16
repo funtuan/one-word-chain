@@ -71,6 +71,14 @@
       }
       .ghost-btn { cursor: pointer; }
 
+      /* 分區標題 */
+      .section-title {
+        font-size: 14px; font-weight: 700; letter-spacing: 0.02em;
+        margin: 8px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+        display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+      }
+      .section-title .section-note { font-size: 11px; font-weight: 500; color: var(--muted); }
+
       /* 卡片 */
       .cards {
         display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -109,6 +117,14 @@
       .tag.devil { background: rgba(255,122,198,0.18); color: var(--devil); }
       .win { color: var(--accent-2); font-weight: 600; }
       .reason { color: var(--muted); font-size: 11px; }
+
+      /* 好友房名次 */
+      .standings { display: flex; flex-wrap: wrap; gap: 4px 8px; white-space: normal; }
+      .rankchip { font-size: 12px; color: var(--muted); }
+      .rankchip .rk { color: var(--warn); font-weight: 700; margin-right: 3px; }
+      .rankchip.top .nm { color: var(--accent-2); font-weight: 600; }
+      .rankchip.out .nm { color: var(--muted); text-decoration: line-through; }
+      .roomcode { font-variant-numeric: tabular-nums; letter-spacing: 0.06em; }
       .empty { color: var(--muted); text-align: center; padding: 28px; }
       .hidden { display: none !important; }
 
@@ -197,11 +213,12 @@
         </div>
       </header>
 
+      <div class="section-title">隨機配對（1 對 1）</div>
       <div class="cards" id="cards"></div>
 
       <section class="panel">
         <h2>每日對戰場數</h2>
-        <p class="hint">依 UTC+8 分日；顯示所選區間內每天完成的對戰數。</p>
+        <p class="hint">依 UTC+8 分日；顯示所選區間內每天完成的隨機配對對戰數。</p>
         <div class="legend">
           <span><i style="background:var(--accent)"></i>對戰場數</span>
         </div>
@@ -234,6 +251,39 @@
           </table>
         </div>
         <div class="empty hidden" id="matches-empty">尚無對戰紀錄</div>
+      </section>
+
+      <!-- 好友房（多人）：獨立統計，不與隨機配對合算 -->
+      <div class="section-title">
+        好友房（多人）
+        <span class="section-note">開房邀請、2 人以上；不計 ELO，僅供分析</span>
+      </div>
+      <div class="cards" id="room-cards"></div>
+
+      <section class="panel">
+        <h2>每日好友房場數</h2>
+        <p class="hint">依 UTC+8 分日；顯示所選區間內每天完成的好友房對局數。</p>
+        <div class="legend">
+          <span><i style="background:var(--devil)"></i>好友房場數</span>
+        </div>
+        <div class="chart" id="chart-rooms"></div>
+      </section>
+
+      <section class="panel">
+        <h2>最近好友房</h2>
+        <p class="hint">最近幾場多人對局的人數、名次與模式；點列可看完整過程。</p>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>時間</th><th class="num">房號</th><th class="num">人數</th>
+                <th>名次</th><th>模式</th><th class="num">回合</th><th>結束</th>
+              </tr>
+            </thead>
+            <tbody id="rooms-body"></tbody>
+          </table>
+        </div>
+        <div class="empty hidden" id="rooms-empty">尚無好友房紀錄</div>
       </section>
     </div>
 

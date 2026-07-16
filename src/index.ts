@@ -7,6 +7,8 @@ import {
   getPlayer,
   getPlayerRank,
   getRecentMatches,
+  getRecentRoomMatches,
+  getRoomMatchDetail,
   registerPlayer,
 } from "./db";
 import type { PlayerStats } from "./types";
@@ -286,6 +288,29 @@ export default {
           return Response.json({ error: "id_required" }, { status: 400 });
         }
         const detail = await getMatchDetail(env.DB, matchId);
+        if (!detail) {
+          return Response.json({ error: "not_found" }, { status: 404 });
+        }
+        return Response.json(detail);
+      }
+
+      // 好友房（多人）最近場次：附各座位名次
+      if (url.pathname === "/api/admin/recent-rooms") {
+        const limit = Math.min(
+          100,
+          Math.max(1, Number(url.searchParams.get("limit")) || 20),
+        );
+        const rooms = await getRecentRoomMatches(env.DB, limit);
+        return Response.json({ rooms });
+      }
+
+      // 好友房單場詳情：多人事件流（座位 s0..sN）
+      if (url.pathname === "/api/admin/room") {
+        const matchId = url.searchParams.get("id") ?? "";
+        if (!matchId) {
+          return Response.json({ error: "id_required" }, { status: 400 });
+        }
+        const detail = await getRoomMatchDetail(env.DB, matchId);
         if (!detail) {
           return Response.json({ error: "not_found" }, { status: 404 });
         }

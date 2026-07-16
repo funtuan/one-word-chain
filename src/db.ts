@@ -300,7 +300,14 @@ export interface AdminOverview {
   newPlayers7d: number; // 近 7 天首度出賽的玩家數
   aiCost7dUsd: number; // 近 7 天 AI 花費（USD）
   aiCostTotalUsd: number; // 累計 AI 花費（USD）
-  modeSplit7d: { normal: number; devil: number }; // 近 7 天模式分布
+  modeSplit7d: { normal: number; devil: number }; // 近 7 天模式分布（隨機配對）
+  // ---- 好友房（多人）：獨立統計，不與上方隨機配對合算 ----
+  roomTotal: number; // 累計好友房場數
+  roomMatches24h: number; // 近 24 小時好友房場數
+  roomMatches7d: number; // 近 7 天好友房場數
+  roomActivePlayers7d: number; // 近 7 天有進好友房的相異玩家數（含匿名者排除）
+  roomAvgPlayers7d: number; // 近 7 天好友房平均人數
+  roomModeSplit7d: { normal: number; devil: number }; // 近 7 天好友房模式分布
 }
 
 // 後台總覽數字（單次併發查詢）。
@@ -322,6 +329,11 @@ export async function getAdminOverview(
     cost7,
     costTotal,
     modeRows,
+    roomTotal,
+    room24,
+    room7,
+    roomActive7,
+    roomModeRows,
   ] = await Promise.all([
     db.prepare(`SELECT COUNT(*) c FROM players`).first<{ c: number }>(),
     db.prepare(`SELECT COUNT(*) c FROM matches`).first<{ c: number }>(),
@@ -366,12 +378,45 @@ export async function getAdminOverview(
       )
       .bind(t7)
       .all<{ mode: string; c: number }>(),
+    // ---- 好友房統計（room_matches / room_match_players）----
+    db.prepare(`SELECT COUNT(*) c FROM room_matches`).first<{ c: number }>(),
+    db
+      .prepare(`SELECT COUNT(*) c FROM room_matches WHERE created_at >= ?`)
+      .bind(t24)
+      .first<{ c: number }>(),
+    db
+      .prepare(
+        `SELECT COUNT(*) c, COALESCE(AVG(player_count),0) avg FROM room_matches WHERE created_at >= ?`,
+      )
+      .bind(t7)
+      .first<{ c: number; avg: number }>(),
+    db
+      .prepare(
+        `SELECT COUNT(DISTINCT rmp.player_id) c
+         FROM room_match_players rmp
+         JOIN room_matches rm ON rm.id = rmp.match_id
+         WHERE rm.created_at >= ? AND rmp.player_id <> ''`,
+      )
+      .bind(t7)
+      .first<{ c: number }>(),
+    db
+      .prepare(
+        `SELECT mode, COUNT(*) c FROM room_matches WHERE created_at >= ? GROUP BY mode`,
+      )
+      .bind(t7)
+      .all<{ mode: string; c: number }>(),
   ]);
 
   const modeSplit7d = { normal: 0, devil: 0 };
   for (const r of modeRows.results ?? []) {
     if (r.mode === "devil") modeSplit7d.devil = r.c;
     else modeSplit7d.normal = r.c;
+  }
+
+  const roomModeSplit7d = { normal: 0, devil: 0 };
+  for (const r of roomModeRows.results ?? []) {
+    if (r.mode === "devil") roomModeSplit7d.devil = r.c;
+    else roomModeSplit7d.normal = r.c;
   }
 
   return {
@@ -384,14 +429,21 @@ export async function getAdminOverview(
     aiCost7dUsd: cost7?.s ?? 0,
     aiCostTotalUsd: costTotal?.s ?? 0,
     modeSplit7d,
+    roomTotal: num(roomTotal),
+    roomMatches24h: num(room24),
+    roomMatches7d: room7?.c ?? 0,
+    roomActivePlayers7d: num(roomActive7),
+    roomAvgPlayers7d: Math.round((room7?.avg ?? 0) * 10) / 10,
+    roomModeSplit7d,
   };
 }
 
 export interface DailyStats {
   days: string[]; // YYYY-MM-DD，由舊到新
-  matches: number[]; // 每日對戰場數
-  active: number[]; // 每日相異出賽玩家數
-  newPlayers: number[]; // 每日首度出賽玩家數
+  matches: number[]; // 每日對戰場數（隨機配對）
+  active: number[]; // 每日相異出賽玩家數（隨機配對）
+  newPlayers: number[]; // 每日首度出賽玩家數（隨機配對）
+  roomMatches: number[]; // 每日好友房場數（多人）
 }
 
 // 近 N 天逐日走勢；缺資料的日子補 0，確保 X 軸連續。
@@ -403,7 +455,7 @@ export async function getDailyStats(
 ): Promise<DailyStats> {
   const since = now - days * DAY_MS;
 
-  const [matchRows, activeRows, newRows] = await Promise.all([
+  const [matchRows, activeRows, newRows, roomRows] = await Promise.all([
     db
       .prepare(
         `SELECT ${dayExpr("created_at")} d, COUNT(*) c
@@ -432,6 +484,13 @@ export async function getDailyStats(
       )
       .bind(offsetMin, since)
       .all<{ d: string; c: number }>(),
+    db
+      .prepare(
+        `SELECT ${dayExpr("created_at")} d, COUNT(*) c
+         FROM room_matches WHERE created_at >= ? GROUP BY d`,
+      )
+      .bind(offsetMin, since)
+      .all<{ d: string; c: number }>(),
   ]);
 
   const toMap = (rows: { results?: { d: string; c: number }[] }) => {
@@ -442,6 +501,7 @@ export async function getDailyStats(
   const mMatch = toMap(matchRows);
   const mActive = toMap(activeRows);
   const mNew = toMap(newRows);
+  const mRoom = toMap(roomRows);
 
   const dayList: string[] = [];
   for (let i = days - 1; i >= 0; i--) dayList.push(dayKey(now - i * DAY_MS, offsetMin));
@@ -451,6 +511,7 @@ export async function getDailyStats(
     matches: dayList.map((d) => mMatch.get(d) ?? 0),
     active: dayList.map((d) => mActive.get(d) ?? 0),
     newPlayers: dayList.map((d) => mNew.get(d) ?? 0),
+    roomMatches: dayList.map((d) => mRoom.get(d) ?? 0),
   };
 }
 
@@ -692,6 +753,216 @@ export async function getMatchDetail(
   }
 
   return { match, events };
+}
+
+// ---- 好友房（多人）後台查詢 ----
+
+export interface RoomMatchPlayer {
+  playerId: string;
+  name: string;
+  seat: number;
+  score: number;
+  rank: number; // 1 起；同分共列
+  eliminated: boolean; // 是否中離淘汰
+}
+
+export interface RecentRoomMatch {
+  id: string;
+  roomCode: string;
+  mode: GameMode;
+  rounds: number;
+  playerCount: number;
+  reason: string; // rounds | players_left
+  createdAt: number;
+  players: RoomMatchPlayer[]; // 依名次排序
+}
+
+// 最近 N 場好友房，附各座位名次（供後台一覽多人戰績），依時間新到舊。
+export async function getRecentRoomMatches(
+  db: D1Database,
+  limit: number,
+): Promise<RecentRoomMatch[]> {
+  const { results } = await db
+    .prepare(`SELECT id FROM room_matches ORDER BY created_at DESC LIMIT ?`)
+    .bind(limit)
+    .all<{ id: string }>();
+  const ids = (results ?? []).map((r) => r.id);
+  const list = await getRecentRoomMatchesByIds(db, ids);
+  // 依上方時間排序還原（byIds 不保證順序）
+  const order = new Map(ids.map((id, i) => [id, i]));
+  return list.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+}
+
+export interface RoomMatchDetailMeta extends RecentRoomMatch {}
+
+// 好友房事件：actor/challenged/awardedTo/winner 為座位標籤 s0..sN；
+// scores 為全座位比分快照（依 seat 排列）。
+export interface RoomMatchEvent {
+  seq: number;
+  round: number;
+  type: GameEventType;
+  actor: string | null; // s0..sN
+  char: string | null;
+  posIndex: number | null;
+  sentence: string | null;
+  challenged: string | null;
+  sentenceScore: number | null;
+  delta: number | null;
+  awardedTo: string | null;
+  awardedPts: number | null;
+  restriction: string | null;
+  violation: string | null;
+  reason: string | null;
+  scores: number[] | null; // 事件後全座位比分
+  winner: string | null;
+  detail: unknown | null;
+  createdAt: number;
+}
+
+export interface RoomMatchDetail {
+  match: RoomMatchDetailMeta;
+  events: RoomMatchEvent[];
+}
+
+// 取單一好友房場次的完整過程；查無此場回 null。
+// 事件依 game_id（= room_matches.id = sessionId）撈出，以 seq 排序還原時序。
+export async function getRoomMatchDetail(
+  db: D1Database,
+  matchId: string,
+): Promise<RoomMatchDetail | null> {
+  const [meta] = await getRecentRoomMatchesByIds(db, [matchId]);
+  if (!meta) return null;
+
+  const { results } = await db
+    .prepare(
+      `SELECT seq, round, type, actor, char, pos_index, sentence, challenged,
+              score_a, delta, awarded_to, awarded_pts, restriction, violation, reason,
+              scores, winner, detail, created_at
+       FROM game_events WHERE game_id = ? ORDER BY seq ASC`,
+    )
+    .bind(matchId)
+    .all<{
+      seq: number;
+      round: number;
+      type: string;
+      actor: string | null;
+      char: string | null;
+      pos_index: number | null;
+      sentence: string | null;
+      challenged: string | null;
+      score_a: number | null;
+      delta: number | null;
+      awarded_to: string | null;
+      awarded_pts: number | null;
+      restriction: string | null;
+      violation: string | null;
+      reason: string | null;
+      scores: string | null;
+      winner: string | null;
+      detail: string | null;
+      created_at: number;
+    }>();
+
+  const parse = (s: string | null): unknown | null => {
+    if (!s) return null;
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
+    }
+  };
+
+  const events: RoomMatchEvent[] = (results ?? []).map((r) => ({
+    seq: r.seq,
+    round: r.round,
+    type: r.type as GameEventType,
+    actor: r.actor,
+    char: r.char,
+    posIndex: r.pos_index,
+    sentence: r.sentence,
+    challenged: r.challenged,
+    sentenceScore: r.score_a,
+    delta: r.delta,
+    awardedTo: r.awarded_to,
+    awardedPts: r.awarded_pts,
+    restriction: r.restriction,
+    violation: r.violation,
+    reason: r.reason,
+    scores: parse(r.scores) as number[] | null,
+    winner: r.winner,
+    detail: parse(r.detail),
+    createdAt: r.created_at,
+  }));
+
+  return { match: meta, events };
+}
+
+// 內部：依 id 清單取好友房場次與名次（getRoomMatchDetail 借用相同組裝邏輯）。
+async function getRecentRoomMatchesByIds(
+  db: D1Database,
+  ids: string[],
+): Promise<RecentRoomMatch[]> {
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => "?").join(",");
+  const { results: matchRows } = await db
+    .prepare(
+      `SELECT id, room_code, mode, rounds, player_count, reason, created_at
+       FROM room_matches WHERE id IN (${placeholders})`,
+    )
+    .bind(...ids)
+    .all<{
+      id: string;
+      room_code: string;
+      mode: string;
+      rounds: number;
+      player_count: number;
+      reason: string;
+      created_at: number;
+    }>();
+  const rows = matchRows ?? [];
+  if (!rows.length) return [];
+
+  const { results: playerRows } = await db
+    .prepare(
+      `SELECT match_id, player_id, name, seat, score, rank, eliminated
+       FROM room_match_players WHERE match_id IN (${placeholders})
+       ORDER BY rank ASC, seat ASC`,
+    )
+    .bind(...ids)
+    .all<{
+      match_id: string;
+      player_id: string;
+      name: string;
+      seat: number;
+      score: number;
+      rank: number;
+      eliminated: number;
+    }>();
+
+  const byMatch = new Map<string, RoomMatchPlayer[]>();
+  for (const p of playerRows ?? []) {
+    const arr = byMatch.get(p.match_id) ?? [];
+    arr.push({
+      playerId: p.player_id,
+      name: p.name,
+      seat: p.seat,
+      score: p.score,
+      rank: p.rank,
+      eliminated: !!p.eliminated,
+    });
+    byMatch.set(p.match_id, arr);
+  }
+
+  return rows.map((r) => ({
+    id: r.id,
+    roomCode: r.room_code,
+    mode: r.mode as GameMode,
+    rounds: r.rounds,
+    playerCount: r.player_count,
+    reason: r.reason,
+    createdAt: r.created_at,
+    players: byMatch.get(r.id) ?? [],
+  }));
 }
 
 // ---- 遊玩歷史事件 ----
