@@ -169,8 +169,7 @@ body {
 }
 /* 模式 icon 放大並各自帶品牌色，讓普通／惡魔一眼可辨 */
 .mode-opt .ico {
-  width: 1.4em;
-  height: 1.4em;
+  font-size: 1.4em;
 }
 .mode-opt .ic {
   vertical-align: -0.44em;
