@@ -55,7 +55,6 @@ body {
   justify-content: center;
   text-align: center;
   gap: 22px;
-  padding-bottom: 56px; /* 給底部 GitHub icon 留空間，避免跟次要功能區重疊 */
 }
 .start-header {
   display: flex;
@@ -115,29 +114,6 @@ body {
   font-size: 13px;
   font-weight: 600;
   border-radius: 999px;
-}
-.gh-link {
-  position: absolute;
-  bottom: calc(18px + env(safe-area-inset-bottom));
-  left: 50%;
-  transform: translateX(-50%);
-  color: var(--muted);
-  opacity: 0.4;
-  transition: opacity 0.2s ease;
-}
-.gh-link:active {
-  opacity: 0.85;
-}
-@media (hover: hover) {
-  .gh-link:hover {
-    opacity: 0.85;
-  }
-}
-.gh-link svg {
-  display: block;
-  width: 26px;
-  height: 26px;
-  fill: currentColor;
 }
 #screen-start h1 {
   font-size: 40px;
