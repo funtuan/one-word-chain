@@ -1460,13 +1460,25 @@ function showSettled(msg) {
   const rowsHtml = items.map(rowHtml).join("");
   const notesHtml = notes.map((n) => `<div class="sheet-note">${n}</div>`).join("");
 
-  // 本回合加總
+  // 本回合加總（挑戰成功時可多人一起加分）
+  const awards =
+    msg.awards && msg.awards.length
+      ? msg.awards
+      : msg.awardedTo !== null && msg.awardedTo !== undefined
+        ? [{ seat: msg.awardedTo, points: msg.awardedPoints }]
+        : [];
   let totalHtml;
-  if (msg.awardedTo === null || msg.awardedTo === undefined) {
+  if (!awards.length) {
     totalHtml = `<div class="sheet-total tie">本回合平手，不計分</div>`;
+  } else if (awards.length === 1) {
+    const mine = awards[0].seat === state.you;
+    totalHtml = `<div class="sheet-total ${mine ? "me" : "opp"}">本回合加總　${escapeHtml(sideLabel(awards[0].seat))} +${awards[0].points} 分</div>`;
   } else {
-    const mine = msg.awardedTo === state.you;
-    totalHtml = `<div class="sheet-total ${mine ? "me" : "opp"}">本回合加總　${escapeHtml(sideLabel(msg.awardedTo))} +${msg.awardedPoints} 分</div>`;
+    const mine = awards.some((a) => a.seat === state.you);
+    const names = awards
+      .map((a) => `${escapeHtml(sideLabel(a.seat))} +${a.points}`)
+      .join("、");
+    totalHtml = `<div class="sheet-total ${mine ? "me" : "opp"}">本回合加總　${names} 分</div>`;
   }
 
   // 對所有座位現有分數的影響（before → after）
@@ -1480,7 +1492,7 @@ function showSettled(msg) {
         sideLabel(i),
         before[i] ?? msg.scores[i],
         msg.scores[i],
-        msg.awardedTo === i,
+        awards.some((a) => a.seat === i),
       ),
     )
     .join("");
@@ -1832,6 +1844,19 @@ function scoreItems(msg, timeout) {
 
   const challenger = msg.challenger;
   const challenged = msg.challenged;
+  // 得分席位（挑戰成功時可多人）；缺 awards 的舊 payload 退回 awardedTo。
+  const awards =
+    msg.awards && msg.awards.length
+      ? msg.awards
+      : msg.awardedTo !== null && msg.awardedTo !== undefined
+        ? [{ seat: msg.awardedTo, points: msg.awardedPoints }]
+        : [];
+  // 逐一列出得分者；第一列帶說明文字，其餘留白對齊。
+  const pushAwards = (label) => {
+    awards.forEach((a, i) => {
+      items.push({ label: i === 0 ? label : "", seat: a.seat, pts: a.points });
+    });
+  };
   const rs = msg.restrictions || [];
   const zhuyinR = rs.find((x) => x.kind === "zhuyin");
   const posR = rs.find((x) => x.kind === "pos");
@@ -1847,40 +1872,36 @@ function scoreItems(msg, timeout) {
   const noBoringViolation = !!noBoringR && msg.noBoringViolation === true;
 
   if (zhuyinViolation || posViolationHit || meaningViolation || noBoringViolation) {
-    // 只有第一個違規項計 +3，其餘僅列出原因（避免明細加總大於實得分數）
-    let scored = false;
-    const pushViolation = (label, devil) => {
-      items.push({ label, seat: challenger, pts: scored ? 0 : 3, devil });
-      scored = true;
-    };
+    // 先列出違規原因（不各自計分，避免加總大於實得），再列出實際得分者。
+    const pushReason = (label) => items.push({ label, seat: null, pts: 0, devil: true });
     if (zhuyinViolation) {
       const finals = escapeHtml((zhuyinR.finals || []).join(" "));
-      pushViolation(`${icon("devil")} 注音違規（不符 ${finals}）`, true);
+      pushReason(`${icon("devil")} 注音違規（不符 ${finals}）`);
     }
     if (posViolationHit) {
       const pos = posR.pos ? escapeHtml(posR.pos) : "";
-      pushViolation(`${icon("devil")} 詞性違規（是${pos}）`, true);
+      pushReason(`${icon("devil")} 詞性違規（是${pos}）`);
     }
     if (meaningViolation) {
-      pushViolation(`${icon("devil")} 意思改變違規（句意未改變）`, true);
+      pushReason(`${icon("devil")} 意思改變違規（句意未改變）`);
     }
     if (noBoringViolation) {
-      pushViolation(`${icon("devil")} 別太無聊違規（放入禁止字）`, true);
+      pushReason(`${icon("devil")} 別太無聊違規（放入禁止字）`);
     }
+    // 違規＝挑戰成功：除被挑戰者外的在局玩家一起 +3
+    pushAwards("違規判挑戰成功");
     notes.push(
-      items.length > 1
-        ? "違規直接判挑戰方 +3（多項違規僅計一次），其他分數不計"
-        : "違規直接判挑戰方 +3，其他分數不計",
+      awards.length > 1
+        ? "違規直接判挑戰成功，非被挑戰者每人 +3（多項違規僅計一次），其他分數不計"
+        : "違規直接判挑戰成功 +3，其他分數不計",
     );
     return { items, notes };
   }
 
-  // 未違規：句子合理度（一律顯示）：正=句子合理→被挑戰方，負=不合理→挑戰方
+  // 未違規：句子合理度（一律顯示）：正=句子合理→被挑戰方加分；
+  // 負=不合理→挑戰成功→除被挑戰者外的在局玩家一起加分（多人分）。
   const aLabel = `句子合理度 · ${reasonWord(msg.sentenceScore)}`;
-  if (msg.sentenceScore > 0)
-    items.push({ label: aLabel, seat: challenged, pts: msg.sentenceScore });
-  else if (msg.sentenceScore < 0)
-    items.push({ label: aLabel, seat: challenger, pts: -msg.sentenceScore });
+  if (msg.sentenceScore !== 0) pushAwards(aLabel);
   else items.push({ label: aLabel, seat: null, pts: 0 });
 
   // 惡魔模式限制（未違規時的說明，逐一列出目前生效的限制）

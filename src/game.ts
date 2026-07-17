@@ -779,6 +779,7 @@ export class Game {
         delta: 0,
         awardedTo,
         awardedPoints: awardedTo !== null ? 3 : 0,
+        awards: awardedTo !== null ? [{ seat: awardedTo, points: 3 }] : [],
         reason: "超時未出手，對方直接得分",
         sentence: s.sentence,
         scores: this.scores(),
@@ -818,6 +819,7 @@ export class Game {
         delta: 0,
         awardedTo: null,
         awardedPoints: 0,
+        awards: [],
         reason: "全員超時未出手，本回合不計分",
         sentence: s.sentence,
         scores: this.scores(),
@@ -1038,8 +1040,9 @@ export class Game {
     const violated =
       zhuyinViolation || posViolationHit || meaningViolation || noBoringViolationHit;
 
-    // delta>0 被挑戰方得分、<0 挑戰方得分。
-    // 多人下計分只在「挑戰者 ↔ 被挑戰者」之間流動，其他玩家不動。
+    // delta>0 被挑戰方得分、<0 挑戰成功。
+    // 挑戰成功時計分不再只給挑戰者，而是「除被挑戰者外的所有在局玩家」一起加分（多人分）；
+    // 挑戰由下一位發動不變，但獎勵擴及全體非被挑戰者。
     let delta: number;
     if (violated) {
       delta = -3;
@@ -1047,18 +1050,24 @@ export class Game {
       delta = sentenceScore;
     }
 
-    let awardedTo: Seat | null = null;
-    let awardedPoints = 0;
+    // 本回合各得分席位（可多人）。
+    const awards: { seat: Seat; points: number }[] = [];
     if (delta > 0) {
-      // 句子合理 -> 挑戰錯誤 -> 被挑戰方加分
-      awardedTo = challenged;
-      awardedPoints = delta;
+      // 句子合理 -> 挑戰失敗 -> 被挑戰方加分
+      awards.push({ seat: challenged, points: delta });
     } else if (delta < 0) {
-      // 句子不合理／湊字 -> 挑戰正確 -> 挑戰者加分
-      awardedTo = challenger;
-      awardedPoints = -delta;
+      // 句子不合理／湊字／違規 -> 挑戰成功 -> 除被挑戰方外的在局玩家一起加分
+      const points = -delta;
+      for (const seat of this.activeSeats()) {
+        if (seat !== challenged) awards.push({ seat, points });
+      }
     }
-    if (awardedTo !== null) s.seats[awardedTo].score += awardedPoints;
+    for (const a of awards) s.seats[a.seat].score += a.points;
+
+    // 相容既有欄位：代表得分方（挑戰成功=挑戰者，挑戰失敗=被挑戰者），每人所得分數。
+    const awardedTo: Seat | null =
+      delta > 0 ? challenged : delta < 0 ? challenger : null;
+    const awardedPoints = awards.length ? awards[0].points : 0;
 
     // 歷史：挑戰結算（AI 評分、得分、違規判定）
     const violation = zhuyinViolation
@@ -1085,7 +1094,14 @@ export class Game {
       restriction: this.restrictionKinds(activeRestrictions),
       violation,
       reason,
-      detail: { zhuyinMatch, posViolation, meaningChanged, noBoringViolation },
+      detail: {
+        zhuyinMatch,
+        posViolation,
+        meaningChanged,
+        noBoringViolation,
+        // 挑戰成功時得分者為多位，awardedTo 僅為代表；此處保留完整名單。
+        awardedSeats: awards.map((a) => this.seatLabel(a.seat)),
+      },
     });
 
     const final = this.startResultPhase();
@@ -1100,6 +1116,7 @@ export class Game {
       delta,
       awardedTo,
       awardedPoints,
+      awards,
       reason,
       sentence: s.sentence,
       scores: this.scores(),
@@ -1160,6 +1177,7 @@ export class Game {
       delta: 0,
       awardedTo: null,
       awardedPoints: 0,
+      awards: [],
       reason,
       sentence: s.sentence,
       scores: this.scores(),

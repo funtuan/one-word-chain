@@ -188,8 +188,9 @@ export type ServerMessage =
       challengedIndex: number | null; // 被挑戰字在 sentence 中的位置；null 表示超時未出手
       sentenceScore: number; // 剛接上的字放進句子後的合理度 -3~3
       delta: number; // 實際計分變化
-      awardedTo: Seat | null; // 得分方（null 表平手不計分）
-      awardedPoints: number;
+      awardedTo: Seat | null; // 得分方代表（null 表平手不計分）；多人得分時取代表席位，完整清單見 awards
+      awardedPoints: number; // 每位得分者各得分數（多人時每人相同）
+      awards: { seat: Seat; points: number }[]; // 本回合所有得分席位；挑戰成功時為「除被挑戰者外的在局玩家」，可多人
       reason: string;
       sentence: string[];
       scores: number[];
