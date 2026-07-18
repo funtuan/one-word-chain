@@ -158,6 +158,20 @@ const MODE_LABEL = {
 // ---------- 畫面切換 ----------
 function show(name) {
   for (const k in el.screens) el.screens[k].classList.toggle("active", k === name);
+  syncRoomUrl(name);
+}
+
+// 讓網址列在等待室時就是邀請連結（?room=CODE），方便直接複製；離開房間即還原成主路徑。
+// 只在「room」畫面掛上 room 參數——其餘畫面（含對局中）一律清掉，
+// 以維持 boot() 中「進行中對局重連」優先於邀請連結加入的判斷（見 boot 內註解）。
+function syncRoomUrl(name) {
+  try {
+    const code = name === "room" && state.room ? state.room.code : null;
+    const want = code ? `?room=${code}` : "";
+    if (location.search !== want) {
+      history.replaceState(null, "", location.pathname + want);
+    }
+  } catch {}
 }
 
 // ---------- 身分（localStorage，無需登入）----------
@@ -600,7 +614,10 @@ async function shareRoomLink() {
   const code = state.room ? state.room.code : null;
   if (!code) return;
   const link = `${location.origin}/?room=${code}`;
-  const text = `來玩一字接龍！房號 ${code}，點連結加入：`;
+  const text =
+    `來玩一字接龍～ 大家輪流加一個字，把句子越接越長、越接越歪，` +
+    `常常接到很荒謬，一局幾分鐘而已。\n` +
+    `房號 ${code}，點連結加入：`;
   if (navigator.share) {
     try {
       await navigator.share({ title: "一字接龍", text, url: link });

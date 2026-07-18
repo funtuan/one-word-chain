@@ -517,16 +517,16 @@ export class Game {
     const roster: SeatState[] = [];
     const seen = new Set<string>();
     for (let i = 0; i < s.seats.length; i++) {
+      if (!s.seats[i].id) continue; // 保險：丟棄任何無 id 的幽靈座位（不把舊有髒資料帶進新一場）
       if (this.socketsOfSeat(i).length === 0) continue;
       roster.push({ ...s.seats[i] });
-      if (s.seats[i].id) seen.add(s.seats[i].id);
+      seen.add(s.seats[i].id);
     }
-    for (const ws of this.ctx.getWebSockets()) {
+    for (const ws of this.liveSpectatorSockets()) {
       if (roster.length >= ROOM_MAX_PLAYERS) break;
-      const att = this.attOf(ws);
-      if (!att || att.seat !== undefined) continue;
-      if (att.pid && seen.has(att.pid)) continue;
-      if (att.pid) seen.add(att.pid);
+      const att = this.attOf(ws)!;
+      if (seen.has(att.pid)) continue; // 已保留／已補過的身分不重複
+      seen.add(att.pid);
       roster.push(this.newSeat(att.pid, att.name, roster.length));
     }
     for (const sk of roster) {
@@ -574,6 +574,13 @@ export class Game {
       return;
     }
     if (s.status === "waiting") {
+      // 房主「主動」離開 = 解散房間（前端確認框已如此告知）。這裡不可走 leaveWaiting
+      // 的房主分支——那只給「意外斷線」用的重連寬限，若沿用，其他人會一直看到房主
+      // 的殘影座位（顯示為斷線的「玩家X」）30 秒才消失。主動離開即立刻解散。
+      if (s.source === "room" && this.isHostSeat(seat)) {
+        await this.closeRoom("host_left");
+        return;
+      }
       // 先抹座位標記再關線，避免 close 事件重複處理
       ws.serializeAttachment({ pid: "", name: "", spec: true } as WsAttachment);
       try {
@@ -636,9 +643,9 @@ export class Game {
   private promoteSpectatorIfRoom(): boolean {
     const s = this.state!;
     if (s.source !== "room" || s.seats.length >= ROOM_MAX_PLAYERS) return false;
-    for (const ws of this.ctx.getWebSockets()) {
-      const att = this.attOf(ws);
-      if (!att || att.seat !== undefined) continue; // 已入座
+    for (const ws of this.liveSpectatorSockets()) {
+      const att = this.attOf(ws)!;
+      if (s.seats.some((sk) => sk.id === att.pid)) continue; // 同 id 已在座（多分頁）不重複補位
       const seat = s.seats.length;
       s.seats.push(this.newSeat(att.pid, att.name, seat));
       try {
@@ -649,6 +656,18 @@ export class Game {
       return true;
     }
     return false;
+  }
+
+  // 目前「在線、尚未入座、且帶真實身分」的觀戰者連線（供等待室遞補與重開一場重建名單）。
+  // 刻意排除兩類殘留連線，否則會被誤當觀戰者補位、生出空 id、名稱回退成「玩家X」的幽靈座位：
+  //   1) readyState !== OPEN：正在關閉／已關的連線（剛離開者的 socket 這一刻仍在清單裡）。
+  //   2) 空 pid：離場／被淘汰時 attachment 已被抹成 spec 空身分的連線。
+  private liveSpectatorSockets(): WebSocket[] {
+    return this.ctx.getWebSockets().filter((ws) => {
+      if (ws.readyState !== 1) return false; // 1 = OPEN
+      const att = this.attOf(ws);
+      return !!att && !!att.pid && att.seat === undefined;
+    });
   }
 
   // 解散房間：通知所有連線並回收
